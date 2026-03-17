@@ -1,0 +1,14 @@
+capture:
+  monitor: 1          # 0=전체, 1=주모니터, 2=보조...
+  interval: 15        # 캡처 간격 (초)
+  quality: 50         # JPEG quality (1-100)
+  skip_similar: true   # 변화 없는 프레임 건너뛰기
+  diff_threshold: 1.5  # 픽셀 차이 임계값 (0-255, 낮을수록 민감)
+
+storage:
+  base_path: "D:/timelapse"   # 날짜별 하위폴더 자동생성
+
+video:
+  fps: 30             # 타임랩스 FPS
+  crf: 23             # 영상 품질 (낮을수록 고화질)
+  auto_generate: false  # 캡처 종료 시 자동 영상 생성
