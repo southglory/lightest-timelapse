@@ -45,8 +45,8 @@ class GridView(tk.Frame):
         self.lbl_sel = tk.Label(top, text="", bg=BG_PANEL, fg=FG_DIM, font=FONT_SM)
         self.lbl_sel.pack(side=tk.LEFT, padx=4)
 
-        for txt, cmd in [("내보내기", self._export), ("템플릿 적용", self._batch_apply),
-                         ("삭제된 파일", self._show_deleted)]:
+        for txt, cmd in [("영상 생성", self._generate_video), ("내보내기", self._export),
+                         ("템플릿 적용", self._batch_apply), ("삭제된 파일", self._show_deleted)]:
             tk.Button(top, text=txt, font=FONT_SM, bg=BG_INPUT, fg=FG, bd=0, padx=6,
                       command=cmd).pack(side=tk.RIGHT, padx=2, pady=4)
 
@@ -315,6 +315,50 @@ class GridView(tk.Frame):
                 top.after(1500, top.destroy)
 
         threading.Thread(target=self.fm.export_all, args=(_cb,), daemon=True).start()
+
+    def _generate_video(self):
+        export_dir = self.fm.session_dir / "exported"
+        has_exported = export_dir.exists() and list(export_dir.glob("*.jpg"))
+
+        top = tk.Toplevel(self)
+        top.title("영상 생성")
+        top.geometry("350x200")
+        top.configure(bg=BG_PANEL)
+
+        tk.Label(top, text="타임랩스 영상 생성", bg=BG_PANEL, fg=FG, font=FONT).pack(pady=8)
+
+        # 소스 선택
+        src_var = tk.StringVar(value="exported" if has_exported else "original")
+        src_frame = tk.Frame(top, bg=BG_PANEL)
+        src_frame.pack(padx=16, anchor=tk.W)
+        tk.Radiobutton(src_frame, text="내보내기된 이미지 (편집 적용됨)", variable=src_var, value="exported",
+                       bg=BG_PANEL, fg=FG, selectcolor=BG_INPUT, font=FONT_SM,
+                       state=tk.NORMAL if has_exported else tk.DISABLED).pack(anchor=tk.W)
+        tk.Radiobutton(src_frame, text="원본 이미지", variable=src_var, value="original",
+                       bg=BG_PANEL, fg=FG, selectcolor=BG_INPUT, font=FONT_SM).pack(anchor=tk.W)
+
+        # FPS
+        fps_frame = tk.Frame(top, bg=BG_PANEL)
+        fps_frame.pack(padx=16, pady=4, anchor=tk.W)
+        tk.Label(fps_frame, text="FPS:", bg=BG_PANEL, fg=FG_DIM, font=FONT_SM).pack(side=tk.LEFT)
+        fps_var = tk.IntVar(value=30)
+        tk.Spinbox(fps_frame, from_=10, to=60, textvariable=fps_var, width=4, font=FONT_SM).pack(side=tk.LEFT, padx=4)
+
+        status = tk.Label(top, text="", bg=BG_PANEL, fg=FG_DIM, font=FONT_SM)
+        status.pack(pady=4)
+
+        def _go():
+            status.config(text="생성 중...", fg="#d7ba7d")
+            top.update_idletasks()
+            def _work():
+                ok, msg = self.fm.generate_video(fps=fps_var.get(), use_exported=(src_var.get() == "exported"))
+                top.after(0, lambda: status.config(text=msg, fg="#4ec9b0" if ok else "#c94040"))
+                if ok:
+                    top.after(3000, top.destroy)
+            threading.Thread(target=_work, daemon=True).start()
+
+        tk.Button(top, text="생성", font=FONT, bg="#007acc", fg="#fff", bd=0, padx=12,
+                  command=_go).pack(pady=4)
 
     def _show_deleted(self):
         deleted = self.fm.list_deleted()

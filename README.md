@@ -92,12 +92,31 @@ video:
 
 ---
 
+## Reviewer — 캡처 검수 도구
+
+캡처한 이미지를 검수하고, 민감 정보를 가리고, 편집된 영상을 만드는 도구.
+
+```
+reviewer.exe D:\timelapse\2026-03-20_14-30-00
+```
+
+- 그리드에서 빠르게 훑어보기 + 삭제
+- 템플릿으로 반복 위치 일괄 마스킹
+- 모자이크/블러/가리기/펜 편집
+- 편집 적용된 영상 생성
+
+자세한 사용법은 [Reviewer README](reviewer/README.md)를 참고하세요.
+
+---
+
 ## 소스에서 빌드
 
 ```bash
 pip install -r requirements.txt
-python download_ffmpeg.py    # ffmpeg 다운로드
-python build.py              # exe 빌드
+python download_ffmpeg.py       # ffmpeg 다운로드
+
+python build.py                 # timelapse.exe 빌드
+python build_reviewer.py        # reviewer.exe 빌드
 ```
 
 ## License

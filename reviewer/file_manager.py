@@ -2,6 +2,9 @@
 
 import json
 import shutil
+import subprocess
+import sys
+import tempfile
 import threading
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFilter
@@ -253,3 +256,55 @@ class FileManager:
             img.save(str(export_dir / img_path.name), "JPEG", quality=90)
             if progress_callback:
                 progress_callback(i + 1, total)
+
+    # ==================== 영상 생성 ====================
+
+    @staticmethod
+    def _get_ffmpeg() -> str:
+        if getattr(sys, "frozen", False):
+            bundled = Path(sys._MEIPASS) / "ffmpeg.exe"
+        else:
+            bundled = Path(__file__).parent.parent / "vendor" / "ffmpeg.exe"
+        if bundled.exists():
+            return str(bundled)
+        return "ffmpeg"
+
+    def generate_video(self, fps: int = 30, crf: int = 23, use_exported: bool = True) -> tuple[bool, str]:
+        """타임랩스 영상 생성. 내보내기된 이미지 또는 원본 사용.
+        Returns: (성공여부, 메시지)"""
+        if use_exported:
+            source_dir = self.session_dir / EXPORT_DIR
+            if not source_dir.exists() or not list(source_dir.glob("*.jpg")):
+                return False, "내보내기를 먼저 실행하세요."
+        else:
+            source_dir = self.session_dir
+
+        files = sorted(source_dir.glob("*.jpg"))
+        if not files:
+            return False, "이미지가 없습니다."
+
+        output_path = self.session_dir / f"{self.session_dir.name}.mp4"
+
+        # concat demuxer용 파일 목록
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, encoding="utf-8") as f:
+            list_file = f.name
+            for img in files:
+                f.write(f"file '{img.absolute()}'\n")
+                f.write(f"duration {1/fps}\n")
+
+        try:
+            cmd = [
+                self._get_ffmpeg(), "-y",
+                "-f", "concat", "-safe", "0",
+                "-i", list_file,
+                "-c:v", "libx264", "-crf", str(crf),
+                "-pix_fmt", "yuv420p", "-r", str(fps),
+                str(output_path),
+            ]
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            if result.returncode == 0:
+                return True, f"영상 생성 완료: {output_path.name} ({len(files)}장 → {fps}fps)"
+            else:
+                return False, f"ffmpeg 오류: {result.stderr[:200]}"
+        finally:
+            Path(list_file).unlink(missing_ok=True)
