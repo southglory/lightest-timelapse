@@ -7,6 +7,7 @@ from PIL import Image, ImageTk
 
 from .editor import Editor, Layer
 from .file_manager import FileManager
+from .selection import SelectionManager
 
 # 디자인 토큰
 BG_MAIN = "#1e1e1e"
@@ -114,6 +115,9 @@ class Viewer(tk.Frame):
         self.canvas.bind("<B1-Motion>", self._on_drag)
         self.canvas.bind("<ButtonRelease-1>", self._on_release)
         self.canvas.bind("<MouseWheel>", self._on_wheel)
+
+        # 선택 매니저
+        self.sel = SelectionManager(self.editor, self.canvas, self._c2i, self._i2c)
 
         # 사이드바
         sb = tk.Frame(main, bg=BG_SIDEBAR, width=200)
@@ -572,6 +576,8 @@ class Viewer(tk.Frame):
         self.tk_img = ImageTk.PhotoImage(disp)
         self.canvas.delete("all")
         self.canvas.create_image(cw//2, ch//2, image=self.tk_img, anchor=tk.CENTER)
+        # 선택 오버레이
+        self.sel.draw_overlay()
 
     def _c2i(self, cx, cy):
         cw, ch = self.canvas.winfo_width(), self.canvas.winfo_height()
@@ -580,45 +586,79 @@ class Viewer(tk.Frame):
         iy = int((cy - (ch - dh)/2) / self.zoom)
         return max(0, min(ix, self.pil_orig.width-1)), max(0, min(iy, self.pil_orig.height-1))
 
+    def _i2c(self, ix, iy):
+        cw, ch = self.canvas.winfo_width(), self.canvas.winfo_height()
+        dw, dh = self.pil_orig.width * self.zoom, self.pil_orig.height * self.zoom
+        cx = ix * self.zoom + (cw - dw) / 2
+        cy = iy * self.zoom + (ch - dh) / 2
+        return cx, cy
+
     # ==================== 마우스 ====================
 
     def _on_press(self, event):
         t = self.editor.current_tool
-        if t == "pen":
-            self.editor.pen_start(*self._c2i(event.x, event.y))
-            self._drag_start = (event.x, event.y)
-        elif t in ("mosaic","blur","fill"):
-            self._drag_start = (event.x, event.y)
+        if t:
+            # 도구 모드: 새 편집 추가
+            self.sel.deselect()
+            if t == "pen":
+                self.editor.pen_start(*self._c2i(event.x, event.y))
+                self._drag_start = (event.x, event.y)
+            elif t in ("mosaic","blur","fill"):
+                self._drag_start = (event.x, event.y)
+        else:
+            # 선택 모드
+            handle = self.sel.hit_handle(event.x, event.y)
+            if handle:
+                ix, iy = self._c2i(event.x, event.y)
+                self.sel.start_resize(handle, ix, iy)
+            else:
+                ix, iy = self._c2i(event.x, event.y)
+                idx = self.sel.hit_test(ix, iy)
+                if idx is not None:
+                    self.sel.select(idx)
+                    self.sel.start_move(ix, iy)
+                else:
+                    self.sel.deselect()
 
     def _on_drag(self, event):
         t = self.editor.current_tool
-        if t == "pen" and self._drag_start:
-            self.editor.pen_move(*self._c2i(event.x, event.y))
-            self.canvas.create_line(self._drag_start[0], self._drag_start[1], event.x, event.y,
-                                    fill=f"#{self.editor.pen_color[0]:02x}{self.editor.pen_color[1]:02x}{self.editor.pen_color[2]:02x}",
-                                    width=max(1, int(self.editor.pen_width * self.zoom)))
-            self._drag_start = (event.x, event.y)
-        elif t in ("mosaic","blur","fill") and self._drag_start:
-            if self._rect_id: self.canvas.delete(self._rect_id)
-            self._rect_id = self.canvas.create_rectangle(
-                self._drag_start[0], self._drag_start[1], event.x, event.y, outline="#ffcc00", dash=(4,4))
+        if t:
+            # 도구 모드
+            if t == "pen" and self._drag_start:
+                self.editor.pen_move(*self._c2i(event.x, event.y))
+                self.canvas.create_line(self._drag_start[0], self._drag_start[1], event.x, event.y,
+                                        fill=f"#{self.editor.pen_color[0]:02x}{self.editor.pen_color[1]:02x}{self.editor.pen_color[2]:02x}",
+                                        width=max(1, int(self.editor.pen_width * self.zoom)))
+                self._drag_start = (event.x, event.y)
+            elif t in ("mosaic","blur","fill") and self._drag_start:
+                if self._rect_id: self.canvas.delete(self._rect_id)
+                self._rect_id = self.canvas.create_rectangle(
+                    self._drag_start[0], self._drag_start[1], event.x, event.y, outline="#ffcc00", dash=(4,4))
+        elif self.sel.is_dragging:
+            # 선택 모드: 이동/리사이즈
+            ix, iy = self._c2i(event.x, event.y)
+            self.sel.update_drag(ix, iy, self._render)
 
     def _on_release(self, event):
         t = self.editor.current_tool
-        if t == "pen":
-            self.editor.finish_pen()
-            self._render()
-            if self.editor.template_mode: self._refresh_layers()
-        elif t in ("mosaic","blur","fill") and self._drag_start:
-            if self._rect_id: self.canvas.delete(self._rect_id); self._rect_id = None
-            x1,y1 = self._c2i(*self._drag_start)
-            x2,y2 = self._c2i(event.x, event.y)
-            box = (min(x1,x2), min(y1,y2), max(x1,x2), max(y1,y2))
-            if box[2]-box[0]>2 and box[3]-box[1]>2:
-                {"mosaic": self.editor.add_mosaic, "blur": self.editor.add_blur, "fill": self.editor.add_fill}[t](box)
+        if t:
+            # 도구 모드
+            if t == "pen":
+                self.editor.finish_pen()
                 self._render()
                 if self.editor.template_mode: self._refresh_layers()
-        self._drag_start = None
+            elif t in ("mosaic","blur","fill") and self._drag_start:
+                if self._rect_id: self.canvas.delete(self._rect_id); self._rect_id = None
+                x1,y1 = self._c2i(*self._drag_start)
+                x2,y2 = self._c2i(event.x, event.y)
+                box = (min(x1,x2), min(y1,y2), max(x1,x2), max(y1,y2))
+                if box[2]-box[0]>2 and box[3]-box[1]>2:
+                    {"mosaic": self.editor.add_mosaic, "blur": self.editor.add_blur, "fill": self.editor.add_fill}[t](box)
+                    self._render()
+                    if self.editor.template_mode: self._refresh_layers()
+            self._drag_start = None
+        elif self.sel.is_dragging:
+            self.sel.end_drag()
         self._update_status()
 
     def _on_wheel(self, event):
@@ -634,6 +674,7 @@ class Viewer(tk.Frame):
             self.editor.set_tool(None)
         else:
             self.editor.set_tool(tool)
+            self.sel.deselect()  # 도구 선택 시 선택 해제
         for t, b in self.tool_btns.items():
             b.config(relief=tk.SUNKEN if t == self.editor.current_tool else tk.RAISED)
         self._update_status()
@@ -692,6 +733,14 @@ class Viewer(tk.Frame):
         self._render()
 
     def _delete(self):
+        # 선택된 편집 요소가 있으면 그것만 삭제
+        if self.sel.selected_idx is not None:
+            if self.sel.delete_selected():
+                self._render()
+                if self.editor.template_mode: self._refresh_layers()
+                self._update_status()
+                self._flash_status("편집 요소 삭제됨")
+            return
         if self.editor.template_mode or not self.images: return
         self.fm.soft_delete(self.images[self.index])
         self.images = self.fm.list_images()

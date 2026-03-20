@@ -219,6 +219,52 @@ class Editor:
             })
         self._pen_points.clear()
 
+    # ==================== 편집 조작 (선택/이동/리사이즈/삭제) ====================
+
+    def move_edit(self, idx: int, dx: int, dy: int):
+        """편집 요소를 delta만큼 이동."""
+        target = self._target_list()
+        if not (0 <= idx < len(target)):
+            return
+        self._push_history()
+        edit = target[idx]
+        if edit["type"] in ("mosaic", "blur", "fill"):
+            b = edit["box"]
+            edit["box"] = [b[0]+dx, b[1]+dy, b[2]+dx, b[3]+dy]
+        elif edit["type"] == "pen":
+            edit["points"] = [[p[0]+dx, p[1]+dy] for p in edit["points"]]
+
+    def resize_edit(self, idx: int, box: tuple[int, int, int, int]):
+        """편집 요소의 box를 직접 설정 (box 편집만)."""
+        target = self._target_list()
+        if not (0 <= idx < len(target)):
+            return
+        edit = target[idx]
+        if edit["type"] not in ("mosaic", "blur", "fill"):
+            return
+        self._push_history()
+        edit["box"] = list(box)
+
+    def delete_edit(self, idx: int):
+        """편집 요소 삭제."""
+        target = self._target_list()
+        if not (0 <= idx < len(target)):
+            return
+        self._push_history()
+        target.pop(idx)
+
+    @staticmethod
+    def get_edit_bounds(edit: dict) -> tuple[int, int, int, int]:
+        """편집의 바운딩 박스 반환."""
+        if edit["type"] in ("mosaic", "blur", "fill"):
+            return tuple(edit["box"])
+        elif edit["type"] == "pen":
+            pts = edit["points"]
+            xs = [p[0] for p in pts]
+            ys = [p[1] for p in pts]
+            return (min(xs), min(ys), max(xs), max(ys))
+        return (0, 0, 0, 0)
+
     # ==================== 렌더링용 ====================
 
     def all_visible_edits(self, fm=None) -> list[dict]:
