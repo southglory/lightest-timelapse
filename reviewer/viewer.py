@@ -3,7 +3,7 @@
 import tkinter as tk
 from tkinter import messagebox, simpledialog
 from pathlib import Path
-from PIL import Image, ImageTk
+from PIL import Image, ImageTk, ImageFilter, ImageEnhance, ImageChops
 
 from .editor import Editor, Layer
 from .file_manager import FileManager
@@ -50,6 +50,7 @@ class Viewer(tk.Frame):
         self._prefetch: dict[int, Image.Image] = {}
         self._active = False
         self._status_clear_id = None
+        self._batch_lock = False  # 배치 작업 진행 중 플래그
 
         self._build_toolbar()
         self._build_main()
@@ -226,7 +227,9 @@ class Viewer(tk.Frame):
 
         n_edits = len(self.editor.edits)
         n_tpl = len(self.editor.applied_templates)
-        self.status_info.config(text=f"직접편집: {n_edits} │ 템플릿: {n_tpl}")
+        tpl_names = ", ".join(self.editor.applied_templates) if self.editor.applied_templates else "없음"
+        info = f"직접편집: {n_edits} │ 🛡 템플릿: {n_tpl} ({tpl_names})"
+        self.status_info.config(text=info, fg=ACCENT_SUCCESS if n_tpl > 0 else FG_DIM)
 
     def _flash_status(self, msg: str, color=ACCENT_SUCCESS, duration=2000):
         self.status_msg.config(text=msg, fg=color)
@@ -280,15 +283,33 @@ class Viewer(tk.Frame):
         self._refresh_applied()
         self._update_status()
 
+    def _run_batch(self, action_name, batch_func, images, template_names):
+        """배치 작업 공통. 진행 중이면 대기 후 실행."""
+        if self._batch_lock:
+            self._flash_status("이전 작업 완료 후 시도하세요", ACCENT_WARN)
+            return
+        self._batch_lock = True
+        n = len(images) + 1  # 현재 이미지 포함
+        c = len(template_names)
+        self._flash_status(f"{action_name} 중... ({n}장)", ACCENT_WARN, duration=60000)
+        import threading
+        def _work():
+            batch_func(images, template_names)
+            self._batch_lock = False
+            self.after(0, lambda: self._flash_status(f"✓ {n}장 {action_name} 완료", ACCENT_SUCCESS, 5000))
+        threading.Thread(target=_work, daemon=True).start()
+
     def _apply_to_all_images(self):
         """현재 체크된 템플릿을 세션 내 모든 이미지에 적용 (비동기)."""
-        if self.editor.template_mode:
+        if self.editor.template_mode or self._batch_lock:
+            if self._batch_lock:
+                self._flash_status("이전 작업 완료 후 시도하세요", ACCENT_WARN)
             return
         checked = [n for n, v in self.applied_checks.items() if v.get()]
         if not checked:
             self._flash_status("적용할 템플릿을 체크하세요", ACCENT_WARN)
             return
-        # 현재 이미지는 즉시 메모리에서 반영
+        # 현재 이미지 즉시 반영
         for name in checked:
             if name not in self.editor.applied_templates:
                 self.editor.applied_templates.append(name)
@@ -296,25 +317,21 @@ class Viewer(tk.Frame):
         self._render()
         self._refresh_applied()
         self._update_status()
-        # 나머지는 백그라운드
+        # 나머지 비동기
         images = [p for i, p in enumerate(self.images) if i != self.index]
-        self._flash_status(f"전체 적용 중... ({len(self.images)}장)", ACCENT_WARN, duration=30000)
-        import threading
-        def _work():
-            self.fm.batch_apply_templates(images, checked)
-            n = len(self.images)
-            c = len(checked)
-            self.after(0, lambda: self._flash_status(f"✓ {n}장에 {c}개 템플릿 적용 완료", ACCENT_SUCCESS, 5000))
-        threading.Thread(target=_work, daemon=True).start()
+        self._run_batch("전체 적용", self.fm.batch_apply_templates, images, checked)
 
     def _unapply_from_all_images(self):
         """현재 체크된 템플릿을 세션 내 모든 이미지에서 해제 (비동기)."""
-        if self.editor.template_mode:
+        if self.editor.template_mode or self._batch_lock:
+            if self._batch_lock:
+                self._flash_status("이전 작업 완료 후 시도하세요", ACCENT_WARN)
             return
         checked = [n for n, v in self.applied_checks.items() if v.get()]
         if not checked:
             self._flash_status("해제할 템플릿을 체크하세요", ACCENT_WARN)
             return
+        # 현재 이미지 즉시 반영
         for name in checked:
             if name in self.editor.applied_templates:
                 self.editor.applied_templates.remove(name)
@@ -322,15 +339,9 @@ class Viewer(tk.Frame):
         self._render()
         self._refresh_applied()
         self._update_status()
+        # 나머지 비동기
         images = [p for i, p in enumerate(self.images) if i != self.index]
-        self._flash_status(f"전체 해제 중... ({len(self.images)}장)", ACCENT_WARN, duration=30000)
-        import threading
-        def _work():
-            self.fm.batch_unapply_templates(images, checked)
-            n = len(self.images)
-            c = len(checked)
-            self.after(0, lambda: self._flash_status(f"✓ {n}장에서 {c}개 템플릿 해제 완료", ACCENT_SUCCESS, 5000))
-        threading.Thread(target=_work, daemon=True).start()
+        self._run_batch("전체 해제", self.fm.batch_unapply_templates, images, checked)
 
     # ==================== 템플릿 관리 (섹션 2) ====================
 
@@ -561,8 +572,42 @@ class Viewer(tk.Frame):
     def _render(self):
         if not self.pil_orig:
             return
-        edits = self.editor.all_visible_edits(self.fm)
-        img = FileManager.apply_edits(self.pil_orig, edits) if edits else self.pil_orig
+
+        if self.editor.template_mode:
+            # 템플릿 편집 모드: 배경 어둡게 + 템플릿 편집만 선명
+            # 1. 배경: 원본 + 적용된 템플릿 + 직접 편집 (어둡게)
+            bg_edits = []
+            for tpl_name in self.editor.applied_templates:
+                layers = self.fm.load_named_template(tpl_name)
+                for layer in layers:
+                    if layer.get("visible", True):
+                        bg_edits.extend(layer.get("edits", []))
+            bg_edits.extend(self.editor.edits)
+            bg_img = FileManager.apply_edits(self.pil_orig, bg_edits) if bg_edits else self.pil_orig.copy()
+            # glass 효과: 블러 + 밝게 + 채도 낮춤
+            bg_img = bg_img.filter(ImageFilter.GaussianBlur(radius=8))
+            bg_img = ImageEnhance.Color(bg_img).enhance(0.2)        # 거의 무채색
+            bg_img = ImageEnhance.Brightness(bg_img).enhance(1.4)   # 밝게
+
+            # 2. 템플릿 편집을 위에 합성
+            tpl_edits = []
+            for layer in self.editor.template_layers:
+                if layer.visible:
+                    tpl_edits.extend(layer.edits)
+            if tpl_edits:
+                # 원본에 템플릿 편집만 적용한 이미지
+                tpl_img = FileManager.apply_edits(self.pil_orig, tpl_edits)
+                # 템플릿 편집 영역만 밝게 합성
+                # 편집된 부분만 원본과 다른 곳 → 마스크
+                diff = ImageChops.difference(tpl_img, self.pil_orig)
+                # diff가 0이 아닌 곳 = 편집된 곳
+                mask = diff.convert("L").point(lambda x: 255 if x > 0 else 0)
+                bg_img.paste(tpl_img, mask=mask)
+            img = bg_img
+        else:
+            # 일반 모드
+            edits = self.editor.all_visible_edits(self.fm)
+            img = FileManager.apply_edits(self.pil_orig, edits) if edits else self.pil_orig
 
         self.canvas.update_idletasks()
         cw, ch = self.canvas.winfo_width(), self.canvas.winfo_height()
@@ -576,7 +621,6 @@ class Viewer(tk.Frame):
         self.tk_img = ImageTk.PhotoImage(disp)
         self.canvas.delete("all")
         self.canvas.create_image(cw//2, ch//2, image=self.tk_img, anchor=tk.CENTER)
-        # 선택 오버레이
         self.sel.draw_overlay()
 
     def _c2i(self, cx, cy):
