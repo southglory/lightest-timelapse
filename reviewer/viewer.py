@@ -96,8 +96,10 @@ class Viewer(tk.Frame):
                  showvalue=True, font=FONT_SM,
                  command=lambda v: setattr(self.editor, 'pen_width', int(v))).pack(side=tk.LEFT)
 
-        tk.Button(r2, text="초기화", font=FONT_SM, bg=BG_INPUT, fg=FG, bd=0, padx=4,
-                  command=self._reset_edits).pack(side=tk.LEFT, padx=8)
+        tk.Button(r2, text="이미지초기화", font=FONT_SM, bg=BG_INPUT, fg=FG, bd=0, padx=4,
+                  command=self._reset_edits).pack(side=tk.LEFT, padx=4)
+        tk.Button(r2, text="전체초기화", font=FONT_SM, bg=BG_INPUT, fg=ACCENT_DANGER, bd=0, padx=4,
+                  command=self._reset_all).pack(side=tk.LEFT, padx=4)
         tk.Button(r2, text="?", font=FONT_SM, bg=BG_INPUT, fg=FG_DIM, bd=0, width=2,
                   command=lambda: messagebox.showinfo("단축키", SHORTCUTS)).pack(side=tk.RIGHT, padx=4)
 
@@ -296,7 +298,9 @@ class Viewer(tk.Frame):
         import threading
         def _work():
             self.fm.batch_apply_templates(images, checked)
-            self.after(0, lambda: self._flash_status(f"{len(self.images)}장에 적용 완료"))
+            n = len(self.images)
+            c = len(checked)
+            self.after(0, lambda: self._flash_status(f"✓ {n}장에 {c}개 템플릿 적용 완료", ACCENT_SUCCESS, 5000))
         threading.Thread(target=_work, daemon=True).start()
 
     def _unapply_from_all_images(self):
@@ -307,7 +311,6 @@ class Viewer(tk.Frame):
         if not checked:
             self._flash_status("해제할 템플릿을 체크하세요", ACCENT_WARN)
             return
-        # 현재 이미지 즉시 반영
         for name in checked:
             if name in self.editor.applied_templates:
                 self.editor.applied_templates.remove(name)
@@ -315,13 +318,14 @@ class Viewer(tk.Frame):
         self._render()
         self._refresh_applied()
         self._update_status()
-        # 나머지 백그라운드
         images = [p for i, p in enumerate(self.images) if i != self.index]
         self._flash_status(f"전체 해제 중... ({len(self.images)}장)", ACCENT_WARN, duration=30000)
         import threading
         def _work():
             self.fm.batch_unapply_templates(images, checked)
-            self.after(0, lambda: self._flash_status(f"{len(self.images)}장에서 해제 완료"))
+            n = len(self.images)
+            c = len(checked)
+            self.after(0, lambda: self._flash_status(f"✓ {n}장에서 {c}개 템플릿 해제 완료", ACCENT_SUCCESS, 5000))
         threading.Thread(target=_work, daemon=True).start()
 
     # ==================== 템플릿 관리 (섹션 2) ====================
@@ -703,9 +707,32 @@ class Viewer(tk.Frame):
     def _reset_edits(self):
         if self.editor.template_mode: return
         self.editor.clear_edits()
+        self.editor.applied_templates.clear()
         self._save()
         self._render()
+        self._refresh_applied()
         self._update_status()
+        self._flash_status("현재 이미지 초기화됨")
+
+    def _reset_all(self):
+        if self.editor.template_mode: return
+        if not messagebox.askyesno("전체 초기화", "모든 이미지의 편집과 템플릿 적용을 초기화합니다.\n계속하시겠습니까?"):
+            return
+        self._flash_status("전체 초기화 중...", ACCENT_WARN, duration=30000)
+        import threading
+        def _work():
+            for img_path in self.images:
+                edit_path = self.fm._edit_path(img_path)
+                edit_path.unlink(missing_ok=True)
+            self.after(0, self._after_reset_all)
+        threading.Thread(target=_work, daemon=True).start()
+
+    def _after_reset_all(self):
+        self.editor.clear_all()
+        self._render()
+        self._refresh_applied()
+        self._update_status()
+        self._flash_status("✓ 전체 초기화 완료", ACCENT_SUCCESS, 5000)
 
     # ==================== 오토세이브 ====================
 

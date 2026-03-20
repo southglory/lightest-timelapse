@@ -189,20 +189,31 @@ class GridView(tk.Frame):
 
         f = tk.Frame(self.inner, bg=BG, padx=PAD//2, pady=PAD//2,
                      highlightthickness=2, highlightbackground=BG)
-        img_label = tk.Label(f, image=tk_img, bg=BG, cursor="hand2")
+
+        # 썸네일 + 상태 아이콘 오버레이
+        thumb_container = tk.Frame(f, bg=BG)
+        thumb_container.pack()
+
+        img_label = tk.Label(thumb_container, image=tk_img, bg=BG, cursor="hand2")
         img_label.image = tk_img
         img_label.pack()
 
-        # 상태 표시
+        # 상태 아이콘 (썸네일 위 오버레이)
         status = self.fm.get_image_status(path)
-        name = path.stem
-        tags = []
+        icons = ""
+        icon_fg = FG_DIM
         if status["template_count"] > 0:
-            tags.append(f"{status['template_count']}T")
+            icons += f"🛡{status['template_count']}"
+            icon_fg = "#4ec9b0"  # 녹색 — 템플릿 적용됨
         if status["has_edits"]:
-            tags.append("편집")
-        suffix = f" [{','.join(tags)}]" if tags else ""
-        tk.Label(f, text=name + suffix, bg=BG, fg=FG_DIM, font=FONT_SM).pack()
+            icons += " ✏"
+        if icons:
+            icon_label = tk.Label(thumb_container, text=icons.strip(), bg="#000000", fg=icon_fg,
+                                   font=("Segoe UI", 7), padx=2, pady=0)
+            icon_label.place(relx=1.0, rely=0.0, anchor=tk.NE, x=-2, y=2)
+
+        # 파일명
+        tk.Label(f, text=path.stem, bg=BG, fg=FG_DIM, font=FONT_SM).pack()
 
         img_label.bind("<Button-1>", lambda e, i=idx: self._on_click(i, e))
         img_label.bind("<Double-Button-1>", lambda e, i=idx: self.on_select(i))
