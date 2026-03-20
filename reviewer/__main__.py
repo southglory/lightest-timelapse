@@ -1,4 +1,6 @@
 import sys
+import tkinter as tk
+from tkinter import filedialog
 from pathlib import Path
 
 from .app import App
@@ -6,10 +8,16 @@ from .app import App
 
 def main():
     if len(sys.argv) < 2:
-        print("사용법: python -m reviewer <세션폴더 경로 또는 latest>")
-        sys.exit(1)
-
-    arg = sys.argv[1]
+        # 인자 없으면 폴더 선택 다이얼로그
+        root = tk.Tk()
+        root.withdraw()
+        folder = filedialog.askdirectory(title="세션 폴더를 선택하세요")
+        root.destroy()
+        if not folder:
+            sys.exit(0)
+        arg = folder
+    else:
+        arg = sys.argv[1]
 
     if arg == "latest":
         # config.yaml에서 base_path 읽기
