@@ -1,3 +1,5 @@
+"""뷰어 — 이미지 표시, 편집, 템플릿 관리."""
+
 import tkinter as tk
 from tkinter import messagebox, simpledialog
 from pathlib import Path
@@ -6,27 +8,32 @@ from PIL import Image, ImageTk
 from .editor import Editor, Layer
 from .file_manager import FileManager
 
+# 디자인 토큰
+BG_MAIN = "#1e1e1e"
+BG_SIDEBAR = "#252526"
+BG_PANEL = "#2d2d2d"
+BG_INPUT = "#3c3c3c"
+FG = "#cccccc"
+FG_DIM = "#888888"
+FG_DISABLED = "#555555"
+ACCENT = "#007acc"
+ACCENT_DANGER = "#c94040"
+ACCENT_SUCCESS = "#4ec9b0"
+ACCENT_WARN = "#d7ba7d"
+BORDER = "#404040"
+FONT = ("Segoe UI", 9)
+FONT_SM = ("Segoe UI", 8)
+FONT_BD = ("Segoe UI", 9, "bold")
 
-SHORTCUTS_TEXT = """단축키 목록
-
-← / A : 이전 이미지
-→ / D : 다음 이미지
-1 : 모자이크
-2 : 블러
-3 : 가리기
-4 : 펜
-Ctrl+Z : 실행취소
-Ctrl+Y : 재실행
-Ctrl+S : 수동 저장
-Delete : 이미지 삭제
-Space : 화면 맞춤 토글
-Escape : 도구 해제 / 그리드 복귀
-"""
+SHORTCUTS = """◀ / A : 이전    ▶ / D : 다음
+1: 모자이크  2: 블러  3: 가리기  4: 펜
+Ctrl+Z: 취소   Ctrl+Y: 재실행   Ctrl+S: 저장
+Delete: 삭제   Space: 화면맞춤   Escape: 해제/복귀"""
 
 
 class Viewer(tk.Frame):
     def __init__(self, master, fm: FileManager, on_back):
-        super().__init__(master)
+        super().__init__(master, bg=BG_MAIN)
         self.fm = fm
         self.on_back = on_back
         self.editor = Editor()
@@ -39,268 +46,389 @@ class Viewer(tk.Frame):
         self._drag_start = None
         self._rect_id = None
         self._autosave_id = None
-        self._prefetch_cache: dict[int, Image.Image] = {}
+        self._prefetch: dict[int, Image.Image] = {}
         self._active = False
+        self._status_clear_id = None
 
-        # --- 상단 툴바 1행 ---
-        row1 = tk.Frame(self, bg="#333")
-        row1.pack(fill=tk.X)
+        self._build_toolbar()
+        self._build_main()
+        self._build_statusbar()
 
-        tk.Button(row1, text="< 그리드 (Esc)", command=self._go_back).pack(side=tk.LEFT, padx=2)
-        tk.Button(row1, text="< (A)", command=self._prev).pack(side=tk.LEFT)
-        self.label_pos = tk.Label(row1, text="0/0", bg="#333", fg="white")
-        self.label_pos.pack(side=tk.LEFT, padx=4)
-        tk.Button(row1, text="> (D)", command=self._next).pack(side=tk.LEFT)
+    # ==================== UI 빌드 ====================
 
-        tk.Frame(row1, width=20, bg="#333").pack(side=tk.LEFT)
+    def _build_toolbar(self):
+        # 행 1: 네비게이션 + 도구
+        r1 = tk.Frame(self, bg=BG_PANEL)
+        r1.pack(fill=tk.X)
 
-        tools = [("모자이크 (1)", "mosaic"), ("블러 (2)", "blur"), ("가리기 (3)", "fill"), ("펜 (4)", "pen")]
+        tk.Button(r1, text="◀ 그리드 Esc", font=FONT_SM, command=self._go_back,
+                  bg=BG_INPUT, fg=FG, bd=0, padx=6).pack(side=tk.LEFT, padx=2, pady=2)
+        tk.Button(r1, text="◀", font=FONT_SM, command=self._prev, bg=BG_INPUT, fg=FG, bd=0, width=3).pack(side=tk.LEFT)
+        self.lbl_pos = tk.Label(r1, text="", bg=BG_PANEL, fg=FG, font=FONT)
+        self.lbl_pos.pack(side=tk.LEFT, padx=6)
+        tk.Button(r1, text="▶", font=FONT_SM, command=self._next, bg=BG_INPUT, fg=FG, bd=0, width=3).pack(side=tk.LEFT)
+
+        tk.Frame(r1, width=16, bg=BG_PANEL).pack(side=tk.LEFT)
+
         self.tool_btns = {}
-        for label, tool in tools:
-            btn = tk.Button(row1, text=label, command=lambda t=tool: self._set_tool(t))
-            btn.pack(side=tk.LEFT, padx=1)
-            self.tool_btns[tool] = btn
+        for label, key in [("모자이크 1", "mosaic"), ("블러 2", "blur"), ("가리기 3", "fill"), ("펜 4", "pen")]:
+            b = tk.Button(r1, text=label, font=FONT_SM, bg=BG_INPUT, fg=FG, bd=1, padx=4,
+                          command=lambda t=key: self._set_tool(t))
+            b.pack(side=tk.LEFT, padx=1, pady=2)
+            self.tool_btns[key] = b
 
-        tk.Frame(row1, width=20, bg="#333").pack(side=tk.LEFT)
-        tk.Button(row1, text="초기화", command=self._reset_edits).pack(side=tk.LEFT, padx=2)
-        tk.Button(row1, text="이미지 삭제 (Del)", command=self._delete, fg="red").pack(side=tk.RIGHT, padx=8)
-        self.label_tool = tk.Label(row1, text="", bg="#333", fg="#aaa")
-        self.label_tool.pack(side=tk.RIGHT, padx=8)
+        tk.Button(r1, text="이미지삭제 Del", font=FONT_SM, bg=BG_INPUT, fg=ACCENT_DANGER, bd=0, padx=6,
+                  command=self._delete).pack(side=tk.RIGHT, padx=4, pady=2)
 
-        # --- 상단 툴바 2행 ---
-        row2 = tk.Frame(self, bg="#3a3a3a")
-        row2.pack(fill=tk.X)
+        # 행 2: 색상 + 굵기
+        r2 = tk.Frame(self, bg=BG_SIDEBAR)
+        r2.pack(fill=tk.X)
 
-        tk.Label(row2, text="색상:", bg="#3a3a3a", fg="white").pack(side=tk.LEFT, padx=4)
-        for color, hex_c in [((0, 0, 0), "#000"), ((255, 0, 0), "#f00"), ((0, 0, 255), "#00f"), ((255, 255, 255), "#fff")]:
-            tk.Button(row2, bg=hex_c, width=2, command=lambda c=color: self._set_color(c)).pack(side=tk.LEFT, padx=1)
+        tk.Label(r2, text="색상:", bg=BG_SIDEBAR, fg=FG_DIM, font=FONT_SM).pack(side=tk.LEFT, padx=4)
+        for rgb, hx in [((0,0,0),"#000"), ((255,0,0),"#e44"), ((0,100,255),"#06f"), ((255,255,255),"#fff")]:
+            tk.Button(r2, bg=hx, width=2, bd=1, relief=tk.GROOVE,
+                      command=lambda c=rgb: self._set_color(c)).pack(side=tk.LEFT, padx=1, pady=2)
 
-        tk.Label(row2, text="  굵기:", bg="#3a3a3a", fg="white").pack(side=tk.LEFT)
+        tk.Label(r2, text="  굵기:", bg=BG_SIDEBAR, fg=FG_DIM, font=FONT_SM).pack(side=tk.LEFT)
         self.width_var = tk.IntVar(value=3)
-        tk.Scale(row2, from_=1, to=20, orient=tk.HORIZONTAL, variable=self.width_var,
-                 bg="#3a3a3a", fg="white", length=100, showvalue=True,
+        tk.Scale(r2, from_=1, to=20, orient=tk.HORIZONTAL, variable=self.width_var,
+                 bg=BG_SIDEBAR, fg=FG, troughcolor=BG_INPUT, highlightthickness=0, length=80,
+                 showvalue=True, font=FONT_SM,
                  command=lambda v: setattr(self.editor, 'pen_width', int(v))).pack(side=tk.LEFT)
 
-        tk.Button(row2, text="단축키", command=lambda: messagebox.showinfo("단축키", SHORTCUTS_TEXT)).pack(side=tk.RIGHT, padx=4)
+        tk.Button(r2, text="초기화", font=FONT_SM, bg=BG_INPUT, fg=FG, bd=0, padx=4,
+                  command=self._reset_edits).pack(side=tk.LEFT, padx=8)
+        tk.Button(r2, text="?", font=FONT_SM, bg=BG_INPUT, fg=FG_DIM, bd=0, width=2,
+                  command=lambda: messagebox.showinfo("단축키", SHORTCUTS)).pack(side=tk.RIGHT, padx=4)
 
-        # --- 메인 영역 ---
-        main = tk.Frame(self)
+    def _build_main(self):
+        main = tk.Frame(self, bg=BG_MAIN)
         main.pack(fill=tk.BOTH, expand=True)
 
-        self.canvas = tk.Canvas(main, bg="#1e1e1e", highlightthickness=0)
+        # 캔버스
+        self.canvas = tk.Canvas(main, bg=BG_MAIN, highlightthickness=0)
         self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-
-        # --- 오른쪽 사이드바 ---
-        self.sidebar = tk.Frame(main, bg="#2b2b2b", width=200)
-        self.sidebar.pack(side=tk.RIGHT, fill=tk.Y)
-        self.sidebar.pack_propagate(False)
-
-        self._build_template_section()
-        self._build_layer_section()
-
-        # 캔버스 이벤트
         self.canvas.bind("<Button-1>", self._on_press)
         self.canvas.bind("<B1-Motion>", self._on_drag)
         self.canvas.bind("<ButtonRelease-1>", self._on_release)
         self.canvas.bind("<MouseWheel>", self._on_wheel)
 
-    # ========== 사이드바 ==========
+        # 사이드바
+        sb = tk.Frame(main, bg=BG_SIDEBAR, width=200)
+        sb.pack(side=tk.RIGHT, fill=tk.Y)
+        sb.pack_propagate(False)
 
-    def _build_template_section(self):
-        """템플릿 섹션 — 제작/관리."""
-        frame = tk.LabelFrame(self.sidebar, text="템플릿", bg="#2b2b2b", fg="white", font=("", 9, "bold"))
-        frame.pack(fill=tk.X, padx=4, pady=4)
+        self._build_applied_section(sb)
+        self._build_manage_section(sb)
+        self._build_layer_section(sb)
 
-        self.btn_tpl_start = tk.Button(frame, text="템플릿 제작 시작", command=self._start_template, bg="#4caf50", fg="white")
-        self.btn_tpl_start.pack(fill=tk.X, padx=4, pady=2)
+    def _build_applied_section(self, parent):
+        """섹션 1: 템플릿 적용 — 전체 목록을 체크박스로. 원클릭 토글."""
+        f = tk.LabelFrame(parent, text=" 템플릿 적용 ", bg=BG_SIDEBAR, fg=FG, font=FONT_BD,
+                          bd=1, relief=tk.GROOVE, labelanchor=tk.NW)
+        f.pack(fill=tk.X, padx=4, pady=3)
+        self.applied_frame = f
 
-        self.btn_tpl_save = tk.Button(frame, text="템플릿 저장 완료", command=self._save_template, bg="#2196f3", fg="white")
-        self.btn_tpl_cancel = tk.Button(frame, text="제작 취소", command=self._cancel_template)
-        # 제작 모드일 때만 표시 (초기에는 숨김)
+        self.applied_checks: dict[str, tk.BooleanVar] = {}
+        self.applied_inner = tk.Frame(f, bg=BG_SIDEBAR)
+        self.applied_inner.pack(fill=tk.X, padx=2)
 
-        self.tpl_listbox = tk.Listbox(frame, bg="#333", fg="white", selectbackground="#4fc3f7",
-                                       height=5, font=("", 9))
-        self.tpl_listbox.pack(fill=tk.X, padx=4, pady=2)
-        self.tpl_listbox.bind("<Double-Button-1>", self._rename_template)
-        # Listbox가 키 이벤트 훔치지 않도록
-        self.tpl_listbox.bind("<FocusIn>", lambda e: self.canvas.focus_set())
-
-        btn_row = tk.Frame(frame, bg="#2b2b2b")
-        btn_row.pack(fill=tk.X, padx=4, pady=2)
-        tk.Button(btn_row, text="적용", width=4, command=self._apply_template).pack(side=tk.LEFT, padx=1)
-        tk.Button(btn_row, text="편집", width=4, command=self._edit_template).pack(side=tk.LEFT, padx=1)
-        tk.Button(btn_row, text="삭제", width=4, command=self._delete_template, fg="red").pack(side=tk.LEFT, padx=1)
-
-        self.tpl_mode_label = tk.Label(frame, text="", bg="#2b2b2b", fg="#ff9800", font=("", 8))
-        self.tpl_mode_label.pack(fill=tk.X, padx=4)
-
-    def _build_layer_section(self):
-        """레이어 섹션 — 템플릿 제작 모드에서만 활성."""
-        self.layer_frame = tk.LabelFrame(self.sidebar, text="레이어 (템플릿 제작 중)", bg="#2b2b2b", fg="#888", font=("", 9, "bold"))
-        self.layer_frame.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
-
-        btn_row = tk.Frame(self.layer_frame, bg="#2b2b2b")
+        btn_row = tk.Frame(f, bg=BG_SIDEBAR)
         btn_row.pack(fill=tk.X, padx=2, pady=2)
-        tk.Button(btn_row, text="+", width=2, command=self._add_layer).pack(side=tk.LEFT, padx=1)
-        tk.Button(btn_row, text="-", width=2, command=self._remove_layer).pack(side=tk.LEFT, padx=1)
-        tk.Button(btn_row, text="▲", width=2, command=lambda: self._move_layer(-1)).pack(side=tk.LEFT, padx=1)
-        tk.Button(btn_row, text="▼", width=2, command=lambda: self._move_layer(1)).pack(side=tk.LEFT, padx=1)
-        tk.Button(btn_row, text="👁", width=2, command=self._toggle_layer).pack(side=tk.LEFT, padx=1)
+        tk.Button(btn_row, text="전체적용", font=FONT_SM, bg=BG_INPUT, fg=ACCENT, bd=0, padx=4,
+                  command=self._apply_to_all_images).pack(side=tk.LEFT, padx=1)
+        tk.Button(btn_row, text="전체해제", font=FONT_SM, bg=BG_INPUT, fg=FG_DIM, bd=0, padx=4,
+                  command=self._unapply_from_all_images).pack(side=tk.LEFT, padx=1)
 
-        self.layer_listbox = tk.Listbox(self.layer_frame, bg="#333", fg="white", selectbackground="#4fc3f7",
-                                         height=6, font=("", 9))
+    def _build_manage_section(self, parent):
+        """섹션 2: 템플릿 관리."""
+        f = tk.LabelFrame(parent, text=" 템플릿 관리 ", bg=BG_SIDEBAR, fg=FG, font=FONT_BD,
+                          bd=1, relief=tk.GROOVE, labelanchor=tk.NW)
+        f.pack(fill=tk.X, padx=4, pady=3)
+
+        self.tpl_listbox = tk.Listbox(f, bg=BG_INPUT, fg=FG, selectbackground=ACCENT,
+                                       height=4, font=FONT_SM, bd=0, highlightthickness=0)
+        self.tpl_listbox.pack(fill=tk.X, padx=2, pady=2)
+        self.tpl_listbox.bind("<FocusIn>", lambda e: self.canvas.focus_set())
+        self.tpl_listbox.bind("<Double-Button-1>", self._rename_template)
+
+        btn_row = tk.Frame(f, bg=BG_SIDEBAR)
+        btn_row.pack(fill=tk.X, padx=2, pady=2)
+        tk.Button(btn_row, text="제작", font=FONT_SM, bg=ACCENT_SUCCESS, fg="#000", bd=0, padx=4,
+                  command=self._start_template).pack(side=tk.LEFT, padx=1)
+        tk.Button(btn_row, text="편집", font=FONT_SM, bg=BG_INPUT, fg=FG, bd=0, padx=4,
+                  command=self._edit_template).pack(side=tk.LEFT, padx=1)
+        tk.Button(btn_row, text="삭제", font=FONT_SM, bg=BG_INPUT, fg=ACCENT_DANGER, bd=0, padx=4,
+                  command=self._delete_template).pack(side=tk.LEFT, padx=1)
+
+    def _build_layer_section(self, parent):
+        """섹션 3: 레이어 (제작 모드 전용)."""
+        self.layer_frame = tk.LabelFrame(parent, text=" 레이어 (비활성) ", bg=BG_SIDEBAR, fg=FG_DISABLED,
+                                          font=FONT_BD, bd=1, relief=tk.GROOVE, labelanchor=tk.NW)
+        self.layer_frame.pack(fill=tk.BOTH, expand=True, padx=4, pady=3)
+
+        btn_row = tk.Frame(self.layer_frame, bg=BG_SIDEBAR)
+        btn_row.pack(fill=tk.X, padx=2, pady=2)
+        for txt, cmd in [("+", self._add_layer), ("−", self._remove_layer),
+                         ("▲", lambda: self._move_layer(-1)), ("▼", lambda: self._move_layer(1)),
+                         ("👁", self._toggle_layer)]:
+            tk.Button(btn_row, text=txt, font=FONT_SM, bg=BG_INPUT, fg=FG, bd=0, width=2,
+                      command=cmd).pack(side=tk.LEFT, padx=1)
+
+        self.layer_listbox = tk.Listbox(self.layer_frame, bg=BG_INPUT, fg=FG, selectbackground=ACCENT,
+                                         height=5, font=FONT_SM, bd=0, highlightthickness=0)
         self.layer_listbox.pack(fill=tk.BOTH, expand=True, padx=2, pady=2)
         self.layer_listbox.bind("<<ListboxSelect>>", self._on_layer_select)
         self.layer_listbox.bind("<Double-Button-1>", self._rename_layer)
         self.layer_listbox.bind("<FocusIn>", lambda e: self.canvas.focus_set())
 
-    # ========== 템플릿 제작 ==========
+        # 제작 모드 버튼 (초기 숨김)
+        self.tpl_action_frame = tk.Frame(self.layer_frame, bg=BG_SIDEBAR)
+        self.btn_tpl_save = tk.Button(self.tpl_action_frame, text="저장 완료", font=FONT,
+                                       bg=ACCENT, fg="#fff", bd=0, padx=8, command=self._save_template)
+        self.btn_tpl_cancel = tk.Button(self.tpl_action_frame, text="취소", font=FONT,
+                                         bg=BG_INPUT, fg=FG, bd=0, padx=8, command=self._cancel_template)
 
-    def _start_template(self):
-        self.editor.start_template_mode()
-        self.btn_tpl_start.pack_forget()
-        self.btn_tpl_save.pack(fill=tk.X, padx=4, pady=2)
-        self.btn_tpl_cancel.pack(fill=tk.X, padx=4, pady=2)
-        self.tpl_mode_label.config(text="▶ 템플릿 제작 중...")
-        self.layer_frame.config(fg="white", text="레이어 (제작 중)")
-        self._refresh_layer_list()
-        self._render()
+    def _build_statusbar(self):
+        sb = tk.Frame(self, bg=BG_PANEL, height=22)
+        sb.pack(fill=tk.X, side=tk.BOTTOM)
+        sb.pack_propagate(False)
 
-    def _save_template(self):
-        # 이름 먼저 물어봄 (모드 종료 전)
-        name = simpledialog.askstring("템플릿 저장", "템플릿 이름:")
-        if not name:
-            return  # 취소해도 제작 모드 유지
-        layers = self.editor.end_template_mode()
-        if not layers:
-            messagebox.showinfo("알림", "편집 내용이 없습니다.")
-            self._exit_template_ui()
-            return
-        self.fm.save_named_template(name, layers)
-        self._exit_template_ui()
-        self._refresh_template_list()
-        self.label_tool.config(text=f"템플릿 '{name}' 저장됨")
-        self._render()
+        self.status_mode = tk.Label(sb, text="모드: 일반", bg=BG_PANEL, fg=FG_DIM, font=FONT_SM, anchor=tk.W)
+        self.status_mode.pack(side=tk.LEFT, padx=8)
+        self.status_tool = tk.Label(sb, text="도구: —", bg=BG_PANEL, fg=FG_DIM, font=FONT_SM)
+        self.status_tool.pack(side=tk.LEFT, padx=8)
+        self.status_info = tk.Label(sb, text="", bg=BG_PANEL, fg=FG_DIM, font=FONT_SM)
+        self.status_info.pack(side=tk.LEFT, padx=8)
+        self.status_msg = tk.Label(sb, text="", bg=BG_PANEL, fg=ACCENT_SUCCESS, font=FONT_SM, anchor=tk.E)
+        self.status_msg.pack(side=tk.RIGHT, padx=8)
 
-    def _cancel_template(self):
-        self.editor.cancel_template_mode()
-        self._exit_template_ui()
-        self._render()
+    # ==================== 상태 표시 ====================
 
-    def _exit_template_ui(self):
-        self.btn_tpl_save.pack_forget()
-        self.btn_tpl_cancel.pack_forget()
-        self.btn_tpl_start.pack(fill=tk.X, padx=4, pady=2)
-        self.tpl_mode_label.config(text="")
-        self.layer_frame.config(fg="#888", text="레이어 (템플릿 제작 중)")
-        self.layer_listbox.delete(0, tk.END)
-
-    def _apply_template(self):
-        """선택된 템플릿을 현재 이미지에 적용."""
-        sel = self.tpl_listbox.curselection()
-        templates = self.fm.list_templates()
-        if not sel or sel[0] >= len(templates):
-            messagebox.showinfo("알림", "적용할 템플릿을 선택하세요.")
-            return
+    def _update_status(self):
         if self.editor.template_mode:
-            messagebox.showinfo("알림", "템플릿 제작 중에는 적용할 수 없습니다.")
-            return
+            name = self.editor._editing_template_name or "새 템플릿"
+            layer = self.editor.active_layer
+            layer_name = layer.name if layer else "—"
+            self.status_mode.config(text=f"모드: 템플릿 제작 \"{name}\"", fg=ACCENT_WARN)
+        else:
+            self.status_mode.config(text="모드: 일반", fg=FG_DIM)
 
-        name = templates[sel[0]]
-        layers = self.fm.load_named_template(name)
-        # 레이어의 visible edits를 flat으로 모아서 현재 이미지 edits에 추가
-        new_edits = []
-        for layer in layers:
-            if layer.get("visible", True):
-                new_edits.extend(layer.get("edits", []))
-        if new_edits:
-            self.editor._push_history()
-            self.editor.edits.extend(new_edits)
-            self._save()
-            self._render()
-            self.label_tool.config(text=f"'{name}' 적용됨")
+        tool_names = {"mosaic": "모자이크", "blur": "블러", "fill": "가리기", "pen": "펜"}
+        t = self.editor.current_tool
+        self.status_tool.config(text=f"도구: {tool_names.get(t, '—')}")
 
-    def _edit_template(self):
-        """선택된 템플릿을 제작 모드로 열어서 편집."""
-        sel = self.tpl_listbox.curselection()
-        templates = self.fm.list_templates()
-        if not sel or sel[0] >= len(templates):
-            messagebox.showinfo("알림", "편집할 템플릿을 선택하세요.")
-            return
+        n_edits = len(self.editor.edits)
+        n_tpl = len(self.editor.applied_templates)
+        self.status_info.config(text=f"직접편집: {n_edits} │ 템플릿: {n_tpl}")
+
+    def _flash_status(self, msg: str, color=ACCENT_SUCCESS, duration=2000):
+        self.status_msg.config(text=msg, fg=color)
+        if self._status_clear_id:
+            self.after_cancel(self._status_clear_id)
+        self._status_clear_id = self.after(duration, lambda: self.status_msg.config(text=""))
+
+    # ==================== 적용된 템플릿 (섹션 1) ====================
+
+    def _refresh_applied(self):
+        """모든 템플릿을 체크박스로 나열. 적용된 것은 체크 상태."""
+        for w in self.applied_inner.winfo_children():
+            w.destroy()
+        self.applied_checks.clear()
+
         if self.editor.template_mode:
-            messagebox.showinfo("알림", "이미 템플릿 제작 중입니다.")
+            tk.Label(self.applied_inner, text="(제작 중 비활성)", bg=BG_SIDEBAR, fg=FG_DISABLED, font=FONT_SM).pack(anchor=tk.W)
             return
 
-        name = templates[sel[0]]
-        layers = self.fm.load_named_template(name)
-        # 제작 모드로 진입하되 기존 레이어를 로드
-        self.editor.start_template_mode()
-        self.editor.template_layers = [Layer.from_dict(l) for l in layers]
-        self.editor.active_layer_idx = 0 if self.editor.template_layers else -1
+        templates = self.fm.list_templates()
+        if not templates:
+            tk.Label(self.applied_inner, text="(템플릿 없음)", bg=BG_SIDEBAR, fg=FG_DISABLED, font=FONT_SM).pack(anchor=tk.W)
+            return
 
-        # 기존 템플릿 삭제 (저장 시 새로 만들어짐)
-        self.fm.delete_template(name)
-        self._refresh_template_list()
+        for name in templates:
+            applied = name in self.editor.applied_templates
+            var = tk.BooleanVar(value=applied)
+            self.applied_checks[name] = var
+            cb = tk.Checkbutton(self.applied_inner, text=name, variable=var, bg=BG_SIDEBAR,
+                                fg=FG if applied else FG_DIM, selectcolor=BG_INPUT,
+                                activebackground=BG_SIDEBAR, font=FONT_SM,
+                                command=lambda n=name: self._on_applied_toggle(n))
+            cb.pack(anchor=tk.W, padx=2)
 
-        self.btn_tpl_start.pack_forget()
-        self.btn_tpl_save.pack(fill=tk.X, padx=4, pady=2)
-        self.btn_tpl_cancel.pack(fill=tk.X, padx=4, pady=2)
-        self.tpl_mode_label.config(text=f"▶ '{name}' 편집 중...")
-        self.layer_frame.config(fg="white", text="레이어 (제작 중)")
-        self._refresh_layer_list()
+    def _on_applied_toggle(self, name: str):
+        var = self.applied_checks.get(name)
+        if not var:
+            return
+        if var.get():
+            # 적용
+            if name not in self.editor.applied_templates:
+                self.editor.applied_templates.append(name)
+            self._flash_status(f"'{name}' 적용됨")
+        else:
+            # 해제
+            if name in self.editor.applied_templates:
+                self.editor.applied_templates.remove(name)
+            self._flash_status(f"'{name}' 해제됨")
+        self._save()
         self._render()
+        self._refresh_applied()
+        self._update_status()
 
-    def _rename_template(self, event=None):
-        sel = self.tpl_listbox.curselection()
-        templates = self.fm.list_templates()
-        if not sel or sel[0] >= len(templates):
+    def _apply_to_all_images(self):
+        """현재 체크된 템플릿을 세션 내 모든 이미지에 적용 (비동기)."""
+        if self.editor.template_mode:
             return
-        old_name = templates[sel[0]]
-        new_name = simpledialog.askstring("이름 변경", "새 이름:", initialvalue=old_name)
-        if new_name and new_name != old_name:
-            layers = self.fm.load_named_template(old_name)
-            self.fm.delete_template(old_name)
-            self.fm.save_named_template(new_name, layers)
-            self._refresh_template_list()
+        checked = [n for n, v in self.applied_checks.items() if v.get()]
+        if not checked:
+            self._flash_status("적용할 템플릿을 체크하세요", ACCENT_WARN)
+            return
+        # 현재 이미지는 즉시 메모리에서 반영
+        for name in checked:
+            if name not in self.editor.applied_templates:
+                self.editor.applied_templates.append(name)
+        self._save()
+        self._render()
+        self._refresh_applied()
+        self._update_status()
+        # 나머지는 백그라운드
+        images = [p for i, p in enumerate(self.images) if i != self.index]
+        self._flash_status(f"전체 적용 중... ({len(self.images)}장)", ACCENT_WARN, duration=30000)
+        import threading
+        def _work():
+            self.fm.batch_apply_templates(images, checked)
+            self.after(0, lambda: self._flash_status(f"{len(self.images)}장에 적용 완료"))
+        threading.Thread(target=_work, daemon=True).start()
 
-    def _delete_template(self):
-        sel = self.tpl_listbox.curselection()
-        templates = self.fm.list_templates()
-        if sel and sel[0] < len(templates):
-            self.fm.delete_template(templates[sel[0]])
-            self._refresh_template_list()
+    def _unapply_from_all_images(self):
+        """현재 체크된 템플릿을 세션 내 모든 이미지에서 해제 (비동기)."""
+        if self.editor.template_mode:
+            return
+        checked = [n for n, v in self.applied_checks.items() if v.get()]
+        if not checked:
+            self._flash_status("해제할 템플릿을 체크하세요", ACCENT_WARN)
+            return
+        # 현재 이미지 즉시 반영
+        for name in checked:
+            if name in self.editor.applied_templates:
+                self.editor.applied_templates.remove(name)
+        self._save()
+        self._render()
+        self._refresh_applied()
+        self._update_status()
+        # 나머지 백그라운드
+        images = [p for i, p in enumerate(self.images) if i != self.index]
+        self._flash_status(f"전체 해제 중... ({len(self.images)}장)", ACCENT_WARN, duration=30000)
+        import threading
+        def _work():
+            self.fm.batch_unapply_templates(images, checked)
+            self.after(0, lambda: self._flash_status(f"{len(self.images)}장에서 해제 완료"))
+        threading.Thread(target=_work, daemon=True).start()
 
-    def _refresh_template_list(self):
+    # ==================== 템플릿 관리 (섹션 2) ====================
+
+    def _refresh_templates(self):
         self.tpl_listbox.delete(0, tk.END)
         for name in self.fm.list_templates():
             layers = self.fm.load_named_template(name)
             total = sum(len(l.get("edits", [])) for l in layers)
             self.tpl_listbox.insert(tk.END, f"{name} ({len(layers)}L, {total}편집)")
 
-    # ========== 레이어 (템플릿 모드에서만) ==========
+    def _start_template(self):
+        if self.editor.template_mode:
+            return
+        self.editor.start_template_create()
+        self._enter_template_ui()
 
-    def _refresh_layer_list(self):
+    def _edit_template(self):
+        if self.editor.template_mode:
+            return
+        sel = self.tpl_listbox.curselection()
+        templates = self.fm.list_templates()
+        if not sel or sel[0] >= len(templates):
+            messagebox.showinfo("알림", "편집할 템플릿을 선택하세요.")
+            return
+        name = templates[sel[0]]
+        layers = self.fm.load_named_template(name)
+        self.editor.start_template_edit(name, layers)
+        self._enter_template_ui()
+
+    def _save_template(self):
+        if not self.editor.template_mode:
+            return
+        old_name = self.editor._editing_template_name
+        default = old_name or ""
+        name = simpledialog.askstring("템플릿 저장", "템플릿 이름:", initialvalue=default)
+        if not name:
+            return  # 취소 → 제작 모드 유지
+
+        _, layers = self.editor.finish_template()
+        if not layers:
+            messagebox.showinfo("알림", "편집 내용이 없습니다.")
+            self._exit_template_ui()
+            return
+
+        # 이름이 바뀌었으면 이전 것 삭제
+        if old_name and old_name != name:
+            self.fm.delete_template(old_name)
+        self.fm.save_named_template(name, layers)
+        self._exit_template_ui()
+        self._refresh_templates()
+        self._flash_status(f"템플릿 '{name}' 저장됨")
+
+    def _cancel_template(self):
+        self.editor.cancel_template()
+        self._exit_template_ui()
+
+    def _enter_template_ui(self):
+        self.layer_frame.config(fg=FG, text=" 레이어 (제작 중) ")
+        self.tpl_action_frame.pack(fill=tk.X, padx=2, pady=4)
+        self.btn_tpl_save.pack(side=tk.LEFT, padx=2)
+        self.btn_tpl_cancel.pack(side=tk.LEFT, padx=2)
+        self._refresh_layers()
+        self._refresh_applied()
+        self._render()
+        self._update_status()
+
+    def _exit_template_ui(self):
+        self.layer_frame.config(fg=FG_DISABLED, text=" 레이어 (비활성) ")
+        self.btn_tpl_save.pack_forget()
+        self.btn_tpl_cancel.pack_forget()
+        self.tpl_action_frame.pack_forget()
+        self.layer_listbox.delete(0, tk.END)
+        self._refresh_applied()
+        self._render()
+        self._update_status()
+
+    def _rename_template(self, event=None):
+        sel = self.tpl_listbox.curselection()
+        templates = self.fm.list_templates()
+        if not sel or sel[0] >= len(templates):
+            return
+        old = templates[sel[0]]
+        new = simpledialog.askstring("이름 변경", "새 이름:", initialvalue=old)
+        if new and new != old:
+            self.fm.rename_template(old, new)
+            self._refresh_templates()
+
+    def _delete_template(self):
+        sel = self.tpl_listbox.curselection()
+        templates = self.fm.list_templates()
+        if sel and sel[0] < len(templates):
+            self.fm.delete_template(templates[sel[0]])
+            self._refresh_templates()
+
+    # ==================== 레이어 (섹션 3) ====================
+
+    def _refresh_layers(self):
         self.layer_listbox.delete(0, tk.END)
         if not self.editor.template_mode:
             return
         for i, layer in enumerate(self.editor.template_layers):
             vis = "◉" if layer.visible else "○"
-            active = "▶" if i == self.editor.active_layer_idx else "  "
-            self.layer_listbox.insert(tk.END, f"{active}{vis} {layer.name} ({len(layer.edits)})")
+            act = "▶" if i == self.editor.active_layer_idx else "  "
+            self.layer_listbox.insert(tk.END, f"{act}{vis} {layer.name} ({len(layer.edits)})")
         if 0 <= self.editor.active_layer_idx < len(self.editor.template_layers):
             self.layer_listbox.selection_set(self.editor.active_layer_idx)
-
-    def _rename_layer(self, event=None):
-        if not self.editor.template_mode:
-            return
-        sel = self.layer_listbox.curselection()
-        if not sel or sel[0] >= len(self.editor.template_layers):
-            return
-        layer = self.editor.template_layers[sel[0]]
-        new_name = simpledialog.askstring("이름 변경", "새 이름:", initialvalue=layer.name)
-        if new_name:
-            layer.name = new_name
-            self._refresh_layer_list()
 
     def _on_layer_select(self, event):
         if not self.editor.template_mode:
@@ -308,16 +436,16 @@ class Viewer(tk.Frame):
         sel = self.layer_listbox.curselection()
         if sel:
             self.editor.set_active_layer(sel[0])
-            self._refresh_layer_list()
+            self._refresh_layers()
+            self._update_status()
 
     def _add_layer(self):
         if not self.editor.template_mode:
             return
-        name = simpledialog.askstring("새 레이어", "레이어 이름:",
-                                       initialvalue=f"레이어 {len(self.editor.template_layers) + 1}")
+        name = simpledialog.askstring("새 레이어", "이름:", initialvalue=f"레이어 {len(self.editor.template_layers)+1}")
         if name:
             self.editor.add_layer(name)
-            self._refresh_layer_list()
+            self._refresh_layers()
 
     def _remove_layer(self):
         if not self.editor.template_mode:
@@ -326,16 +454,16 @@ class Viewer(tk.Frame):
         if sel:
             self.editor.remove_layer(sel[0])
             self._render()
-            self._refresh_layer_list()
+            self._refresh_layers()
 
-    def _move_layer(self, direction: int):
+    def _move_layer(self, d):
         if not self.editor.template_mode:
             return
         sel = self.layer_listbox.curselection()
         if sel:
-            self.editor.move_layer(sel[0], direction)
+            self.editor.move_layer(sel[0], d)
             self._render()
-            self._refresh_layer_list()
+            self._refresh_layers()
 
     def _toggle_layer(self):
         if not self.editor.template_mode:
@@ -344,9 +472,20 @@ class Viewer(tk.Frame):
         if sel:
             self.editor.toggle_layer(sel[0])
             self._render()
-            self._refresh_layer_list()
+            self._refresh_layers()
 
-    # ========== 키보드 ==========
+    def _rename_layer(self, event=None):
+        if not self.editor.template_mode:
+            return
+        sel = self.layer_listbox.curselection()
+        if sel and sel[0] < len(self.editor.template_layers):
+            layer = self.editor.template_layers[sel[0]]
+            new = simpledialog.askstring("이름 변경", "새 이름:", initialvalue=layer.name)
+            if new:
+                layer.name = new
+                self._refresh_layers()
+
+    # ==================== 키보드 ====================
 
     def activate(self):
         self._active = True
@@ -369,185 +508,153 @@ class Viewer(tk.Frame):
     def deactivate(self):
         self._active = False
         root = self.winfo_toplevel()
-        for key in ["<Left>", "<Right>", "<a>", "<d>", "<Escape>", "<Delete>",
-                     "<Control-s>", "<Control-z>", "<Control-y>", "<space>",
-                     "<Key-1>", "<Key-2>", "<Key-3>", "<Key-4>"]:
-            root.unbind(key)
+        for k in ["<Left>","<Right>","<a>","<d>","<Escape>","<Delete>",
+                   "<Control-s>","<Control-z>","<Control-y>","<space>",
+                   "<Key-1>","<Key-2>","<Key-3>","<Key-4>"]:
+            root.unbind(k)
 
-    # ========== 이미지 ==========
+    # ==================== 이미지 ====================
 
     def show(self, images: list[Path], index: int):
         self.images = images
-        self._prefetch_cache.clear()
+        self._prefetch.clear()
         self._go_to(index)
-        self._refresh_template_list()
+        self._refresh_templates()
         self._start_autosave()
 
     def _go_to(self, index: int):
         if self.pil_orig is not None and self.editor.is_dirty:
             self._save()
-
         self.index = index
-        img_path = self.images[self.index]
-        self.label_pos.config(text=f"{self.index + 1}/{len(self.images)}  {img_path.stem}")
+        path = self.images[self.index]
+        self.lbl_pos.config(text=f"{self.index+1}/{len(self.images)}  {path.stem}")
 
-        if self.index in self._prefetch_cache:
-            self.pil_orig = self._prefetch_cache[self.index]
-        else:
-            self.pil_orig = Image.open(img_path).convert("RGB")
+        self.pil_orig = self._prefetch.pop(self.index, None) or Image.open(path).convert("RGB")
 
-        edits = self.fm.load_edits(img_path)
-        self.editor.load_edits(edits)
+        data = self.fm.load_image_data(path)
+        self.editor.load_image_data(data["edits"], data["applied_templates"])
 
         self.fit_mode = True
         self._render()
-        self._prefetch()
+        self._refresh_applied()
+        self._update_status()
+        self._do_prefetch()
 
-    def _prefetch(self):
+    def _do_prefetch(self):
         import threading
-        for offset in [-1, 1]:
-            idx = self.index + offset
-            if 0 <= idx < len(self.images) and idx not in self._prefetch_cache:
+        for off in [-1, 1]:
+            idx = self.index + off
+            if 0 <= idx < len(self.images) and idx not in self._prefetch:
                 def _load(i=idx):
-                    try:
-                        self._prefetch_cache[i] = Image.open(self.images[i]).convert("RGB")
-                    except Exception:
-                        pass
+                    try: self._prefetch[i] = Image.open(self.images[i]).convert("RGB")
+                    except: pass
                 threading.Thread(target=_load, daemon=True).start()
 
     def _render(self):
-        if self.pil_orig is None:
+        if not self.pil_orig:
             return
-
-        all_edits = self.editor.all_visible_edits()
-        img = FileManager.apply_edits(self.pil_orig, all_edits)
+        edits = self.editor.all_visible_edits(self.fm)
+        img = FileManager.apply_edits(self.pil_orig, edits) if edits else self.pil_orig
 
         self.canvas.update_idletasks()
-        cw = self.canvas.winfo_width()
-        ch = self.canvas.winfo_height()
-        if cw < 10 or ch < 10:
-            cw, ch = 800, 600
+        cw, ch = self.canvas.winfo_width(), self.canvas.winfo_height()
+        if cw < 10: cw = 800
+        if ch < 10: ch = 600
         if self.fit_mode:
             self.zoom = min(cw / img.width, ch / img.height)
-        dw = max(1, int(img.width * self.zoom))
-        dh = max(1, int(img.height * self.zoom))
-        display = img.resize((dw, dh), Image.LANCZOS) if self.zoom != 1.0 else img
+        dw, dh = max(1, int(img.width * self.zoom)), max(1, int(img.height * self.zoom))
+        disp = img.resize((dw, dh), Image.LANCZOS) if self.zoom != 1.0 else img
 
-        self.tk_img = ImageTk.PhotoImage(display)
+        self.tk_img = ImageTk.PhotoImage(disp)
         self.canvas.delete("all")
-        self.canvas.create_image(cw // 2, ch // 2, image=self.tk_img, anchor=tk.CENTER)
+        self.canvas.create_image(cw//2, ch//2, image=self.tk_img, anchor=tk.CENTER)
 
-    def _canvas_to_image(self, cx, cy) -> tuple[int, int]:
-        cw = self.canvas.winfo_width()
-        ch = self.canvas.winfo_height()
-        dw = int(self.pil_orig.width * self.zoom)
-        dh = int(self.pil_orig.height * self.zoom)
-        ox = (cw - dw) / 2
-        oy = (ch - dh) / 2
-        ix = int((cx - ox) / self.zoom)
-        iy = int((cy - oy) / self.zoom)
-        return max(0, min(ix, self.pil_orig.width - 1)), max(0, min(iy, self.pil_orig.height - 1))
+    def _c2i(self, cx, cy):
+        cw, ch = self.canvas.winfo_width(), self.canvas.winfo_height()
+        dw, dh = self.pil_orig.width * self.zoom, self.pil_orig.height * self.zoom
+        ix = int((cx - (cw - dw)/2) / self.zoom)
+        iy = int((cy - (ch - dh)/2) / self.zoom)
+        return max(0, min(ix, self.pil_orig.width-1)), max(0, min(iy, self.pil_orig.height-1))
 
-    # ========== 마우스 ==========
+    # ==================== 마우스 ====================
 
     def _on_press(self, event):
-        tool = self.editor.current_tool
-        if tool == "pen":
-            ix, iy = self._canvas_to_image(event.x, event.y)
-            self.editor.pen_start(ix, iy)
+        t = self.editor.current_tool
+        if t == "pen":
+            self.editor.pen_start(*self._c2i(event.x, event.y))
             self._drag_start = (event.x, event.y)
-        elif tool in ("mosaic", "blur", "fill"):
+        elif t in ("mosaic","blur","fill"):
             self._drag_start = (event.x, event.y)
 
     def _on_drag(self, event):
-        tool = self.editor.current_tool
-        if tool == "pen" and self._drag_start:
-            ix, iy = self._canvas_to_image(event.x, event.y)
-            self.editor.pen_move(ix, iy)
-            self.canvas.create_line(
-                self._drag_start[0], self._drag_start[1], event.x, event.y,
-                fill=self._color_hex(self.editor.pen_color),
-                width=max(1, int(self.editor.pen_width * self.zoom)),
-            )
+        t = self.editor.current_tool
+        if t == "pen" and self._drag_start:
+            self.editor.pen_move(*self._c2i(event.x, event.y))
+            self.canvas.create_line(self._drag_start[0], self._drag_start[1], event.x, event.y,
+                                    fill=f"#{self.editor.pen_color[0]:02x}{self.editor.pen_color[1]:02x}{self.editor.pen_color[2]:02x}",
+                                    width=max(1, int(self.editor.pen_width * self.zoom)))
             self._drag_start = (event.x, event.y)
-        elif tool in ("mosaic", "blur", "fill") and self._drag_start:
-            if self._rect_id:
-                self.canvas.delete(self._rect_id)
+        elif t in ("mosaic","blur","fill") and self._drag_start:
+            if self._rect_id: self.canvas.delete(self._rect_id)
             self._rect_id = self.canvas.create_rectangle(
-                self._drag_start[0], self._drag_start[1], event.x, event.y,
-                outline="yellow", dash=(4, 4),
-            )
+                self._drag_start[0], self._drag_start[1], event.x, event.y, outline="#ffcc00", dash=(4,4))
 
     def _on_release(self, event):
-        tool = self.editor.current_tool
-        if tool == "pen":
+        t = self.editor.current_tool
+        if t == "pen":
             self.editor.finish_pen()
             self._render()
-            if self.editor.template_mode:
-                self._refresh_layer_list()
-        elif tool in ("mosaic", "blur", "fill") and self._drag_start:
-            if self._rect_id:
-                self.canvas.delete(self._rect_id)
-                self._rect_id = None
-            x1, y1 = self._canvas_to_image(*self._drag_start)
-            x2, y2 = self._canvas_to_image(event.x, event.y)
-            box = (min(x1, x2), min(y1, y2), max(x1, x2), max(y1, y2))
-            if box[2] - box[0] > 2 and box[3] - box[1] > 2:
-                if tool == "mosaic":
-                    self.editor.add_mosaic(box)
-                elif tool == "blur":
-                    self.editor.add_blur(box)
-                elif tool == "fill":
-                    self.editor.add_fill(box)
+            if self.editor.template_mode: self._refresh_layers()
+        elif t in ("mosaic","blur","fill") and self._drag_start:
+            if self._rect_id: self.canvas.delete(self._rect_id); self._rect_id = None
+            x1,y1 = self._c2i(*self._drag_start)
+            x2,y2 = self._c2i(event.x, event.y)
+            box = (min(x1,x2), min(y1,y2), max(x1,x2), max(y1,y2))
+            if box[2]-box[0]>2 and box[3]-box[1]>2:
+                {"mosaic": self.editor.add_mosaic, "blur": self.editor.add_blur, "fill": self.editor.add_fill}[t](box)
                 self._render()
-                if self.editor.template_mode:
-                    self._refresh_layer_list()
+                if self.editor.template_mode: self._refresh_layers()
         self._drag_start = None
+        self._update_status()
 
     def _on_wheel(self, event):
-        if event.delta > 0:
-            self.zoom *= 1.1
-        else:
-            self.zoom /= 1.1
+        self.zoom *= 1.1 if event.delta > 0 else 1/1.1
         self.zoom = max(0.1, min(self.zoom, 5.0))
         self.fit_mode = False
         self._render()
 
-    # ========== 액션 ==========
+    # ==================== 액션 ====================
 
-    def _set_tool(self, tool: str):
+    def _set_tool(self, tool):
         if self.editor.current_tool == tool:
             self.editor.set_tool(None)
-            self.label_tool.config(text="")
         else:
             self.editor.set_tool(tool)
-            names = {"mosaic": "모자이크", "blur": "블러", "fill": "가리기", "pen": "펜"}
-            self.label_tool.config(text=f"도구: {names.get(tool, tool)}")
-        for t, btn in self.tool_btns.items():
-            btn.config(relief=tk.SUNKEN if t == self.editor.current_tool else tk.RAISED)
+        for t, b in self.tool_btns.items():
+            b.config(relief=tk.SUNKEN if t == self.editor.current_tool else tk.RAISED)
+        self._update_status()
 
-    def _set_color(self, color: tuple):
-        self.editor.pen_color = color
-        self.editor.fill_color = color
+    def _set_color(self, c):
+        self.editor.pen_color = c
+        self.editor.fill_color = c
 
     def _prev(self):
         if self.editor.template_mode:
-            return  # 템플릿 제작 중 이동 금지
-        if self.index > 0:
-            self._go_to(self.index - 1)
+            self._flash_status("템플릿 제작 중 이동 불가", ACCENT_WARN)
+            return
+        if self.index > 0: self._go_to(self.index - 1)
 
     def _next(self):
         if self.editor.template_mode:
+            self._flash_status("템플릿 제작 중 이동 불가", ACCENT_WARN)
             return
-        if self.index < len(self.images) - 1:
-            self._go_to(self.index + 1)
+        if self.index < len(self.images)-1: self._go_to(self.index + 1)
 
     def _go_back(self):
         if self.editor.template_mode:
             messagebox.showinfo("알림", "템플릿 제작을 먼저 완료하거나 취소하세요.")
             return
-        if self.editor.is_dirty:
-            self._save()
+        if self.editor.is_dirty: self._save()
         self._stop_autosave()
         self.on_back()
 
@@ -561,51 +668,52 @@ class Viewer(tk.Frame):
 
     def _save(self):
         if self.images and not self.editor.template_mode:
-            self.fm.save_edits(self.images[self.index], self.editor.edits)
+            self.fm.save_image_data(self.images[self.index], self.editor.edits, self.editor.applied_templates)
+            self._flash_status("저장됨 ✓")
 
     def _undo(self):
         if self.editor.undo():
             self._render()
-            if self.editor.template_mode:
-                self._refresh_layer_list()
+            if self.editor.template_mode: self._refresh_layers()
+            self._update_status()
 
     def _redo(self):
         if self.editor.redo():
             self._render()
-            if self.editor.template_mode:
-                self._refresh_layer_list()
+            if self.editor.template_mode: self._refresh_layers()
+            self._update_status()
 
     def _toggle_fit(self):
         self.fit_mode = not self.fit_mode
-        if self.fit_mode:
-            self._render()
+        self._render()
 
     def _delete(self):
-        if self.editor.template_mode or not self.images:
-            return
+        if self.editor.template_mode or not self.images: return
         self.fm.soft_delete(self.images[self.index])
         self.images = self.fm.list_images()
         if not self.images:
             self._go_back()
             return
-        self.index = min(self.index, len(self.images) - 1)
-        self.editor.clear_edits()
-        self._prefetch_cache.clear()
+        self.index = min(self.index, len(self.images)-1)
+        self.editor.clear_all()
+        self._prefetch.clear()
         self._go_to(self.index)
+        self._flash_status("삭제됨 (복구 가능)")
 
     def _reset_edits(self):
-        if self.editor.template_mode:
-            return
+        if self.editor.template_mode: return
         self.editor.clear_edits()
-        self.fm.save_edits(self.images[self.index], [])
+        self._save()
         self._render()
+        self._update_status()
 
-    # ========== 오토세이브 ==========
+    # ==================== 오토세이브 ====================
 
     def _start_autosave(self):
         def _tick():
             if self.images and self.editor.is_dirty and not self.editor.template_mode:
-                self.fm.autosave(self.images[self.index], self.editor.edits)
+                self.fm.autosave(self.images[self.index], self.editor.edits, self.editor.applied_templates)
+                self._flash_status("자동저장 ✓", duration=1500)
             self._autosave_id = self.after(10000, _tick)
         self._autosave_id = self.after(10000, _tick)
 
@@ -614,7 +722,3 @@ class Viewer(tk.Frame):
             self.after_cancel(self._autosave_id)
             self._autosave_id = None
         self.fm.clear_autosave()
-
-    @staticmethod
-    def _color_hex(rgb: tuple) -> str:
-        return f"#{rgb[0]:02x}{rgb[1]:02x}{rgb[2]:02x}"

@@ -1,3 +1,5 @@
+"""메인 앱 — 그리드와 뷰어 간 전환."""
+
 import tkinter as tk
 from pathlib import Path
 
@@ -10,11 +12,11 @@ class App:
     def __init__(self, session_dir: Path):
         self.root = tk.Tk()
         self.root.title(f"Reviewer — {session_dir.name}")
-        self.root.geometry("1200x800")
-        self.root.configure(bg="#2b2b2b")
+        self.root.geometry("1280x800")
+        self.root.configure(bg="#1e1e1e")
+        self.root.minsize(800, 500)
 
         self.fm = FileManager(session_dir)
-
         self.grid_view = GridView(self.root, self.fm, on_select=self._open_viewer)
         self.viewer = Viewer(self.root, self.fm, on_back=self._show_grid)
 
