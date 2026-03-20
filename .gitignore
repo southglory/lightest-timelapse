@@ -5,3 +5,4 @@ build/
 dist/
 vendor/
 timelapse.exe
+reviewer.exe
