@@ -1,3 +1,5 @@
+[English](README.en.md) | [한국어](README.md) | [中文](README.zh.md) | [日本語](README.ja.md) | [Deutsch](README.de.md) | [Français](README.fr.md) | [Español](README.es.md)
+
 # Lightest Timelapse
 
 하루 종일 작업한 화면을 30초 영상으로 되감아 보세요.
