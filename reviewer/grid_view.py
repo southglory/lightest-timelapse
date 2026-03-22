@@ -366,21 +366,38 @@ class GridView(tk.Frame):
             messagebox.showinfo("삭제된 파일", "삭제된 파일이 없습니다.")
             return
         top = tk.Toplevel(self)
-        top.title("삭제된 파일")
-        top.geometry("400x300")
+        top.title(f"삭제된 파일 ({len(deleted)}장)")
+        top.geometry("400x350")
         top.configure(bg=BG_PANEL)
 
-        lb = tk.Listbox(top, bg=BG_INPUT, fg=FG, font=FONT_SM)
+        tk.Label(top, text="Ctrl+클릭: 다중 선택 │ 복구할 파일을 선택하세요",
+                 bg=BG_PANEL, fg=FG_DIM, font=FONT_SM).pack(pady=4)
+
+        lb = tk.Listbox(top, bg=BG_INPUT, fg=FG, font=FONT_SM, selectmode=tk.EXTENDED)
         lb.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
         for f in deleted:
             lb.insert(tk.END, f.name)
 
-        def _restore():
-            sel = lb.curselection()
-            if sel:
-                self.fm.restore(lb.get(sel[0]))
-                lb.delete(sel[0])
-                self.refresh()
+        btn_frame = tk.Frame(top, bg=BG_PANEL)
+        btn_frame.pack(fill=tk.X, padx=10, pady=5)
 
-        tk.Button(top, text="복구", font=FONT, bg=BG_INPUT, fg=FG, bd=0, padx=8,
-                  command=_restore).pack(pady=5)
+        def _restore_selected():
+            sel = lb.curselection()
+            for i in sorted(sel, reverse=True):
+                self.fm.restore(lb.get(i))
+                lb.delete(i)
+            if sel:
+                self.refresh()
+                top.title(f"삭제된 파일 ({lb.size()}장)")
+
+        def _restore_all():
+            for i in range(lb.size()):
+                self.fm.restore(lb.get(0))
+                lb.delete(0)
+            self.refresh()
+            top.destroy()
+
+        tk.Button(btn_frame, text="선택 복구", font=FONT_SM, bg=BG_INPUT, fg=FG, bd=0, padx=8,
+                  command=_restore_selected).pack(side=tk.LEFT, padx=4)
+        tk.Button(btn_frame, text="전체 복구", font=FONT_SM, bg="#007acc", fg="#fff", bd=0, padx=8,
+                  command=_restore_all).pack(side=tk.LEFT, padx=4)
