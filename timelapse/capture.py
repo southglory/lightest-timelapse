@@ -72,7 +72,7 @@ def run_capture(config: Config):
                         continue
 
                 # 저장
-                filename = session_folder / f"{now.strftime('%H-%M-%S')}.jpg"
+                filename = session_folder / f"{now.strftime('%Y-%m-%d_%H-%M-%S')}.jpg"
                 pil_img.save(str(filename), "JPEG", quality=quality)
                 prev_img = pil_img
 
