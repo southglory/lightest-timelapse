@@ -261,34 +261,45 @@ class FileManager:
 
         # 멀티프로세싱으로 병렬 처리
         workers = min(os.cpu_count() or 4, 8)
-        done_count = multiprocessing.Value("i", 0)
-
         with multiprocessing.Pool(workers) as pool:
-            results = []
-            for job in jobs:
-                r = pool.apply_async(_export_one, job, callback=lambda _: _inc_progress(done_count, total, progress_callback))
-                results.append(r)
-            for r in results:
-                r.wait()
+            for i, _ in enumerate(pool.imap_unordered(_export_one, jobs)):
+                if progress_callback:
+                    progress_callback(i + 1, total)
 
 
-def _export_one(src: str, dest: str, edits: list[dict]):
+def _export_one(args: tuple):
     """워커 프로세스에서 실행. 한 장 내보내기."""
+    src, dest, edits = args
     if edits:
         img = Image.open(src)
-        img = FileManager.apply_edits(img, edits)
+        # apply_edits 인라인 (워커에서 FileManager 참조 불필요)
+        img = img.copy()
+        for edit in edits:
+            t = edit["type"]
+            if t == "mosaic":
+                box = tuple(edit["box"])
+                block = edit.get("block_size", 16)
+                region = img.crop(box)
+                small = region.resize(
+                    (max(1, region.width // block), max(1, region.height // block)),
+                    Image.NEAREST)
+                img.paste(small.resize(region.size, Image.NEAREST), box)
+            elif t == "blur":
+                box = tuple(edit["box"])
+                region = img.crop(box)
+                img.paste(region.filter(ImageFilter.GaussianBlur(radius=edit.get("radius", 20))), box)
+            elif t == "fill":
+                ImageDraw.Draw(img).rectangle(tuple(edit["box"]), fill=tuple(edit.get("color", [0, 0, 0])))
+            elif t == "pen":
+                draw = ImageDraw.Draw(img)
+                pts = edit["points"]
+                color = tuple(edit.get("color", [255, 0, 0]))
+                width = edit.get("width", 3)
+                for i in range(len(pts) - 1):
+                    draw.line([tuple(pts[i]), tuple(pts[i + 1])], fill=color, width=width)
         img.save(dest, "JPEG", quality=90)
     else:
         shutil.copy2(src, dest)
-
-
-def _inc_progress(done_count, total, callback):
-    """진행 콜백 (메인 프로세스에서 실행)."""
-    with done_count.get_lock():
-        done_count.value += 1
-        current = done_count.value
-    if callback:
-        callback(current, total)
 
     # ==================== 영상 생성 ====================
 
