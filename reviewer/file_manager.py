@@ -30,7 +30,7 @@ class FileManager:
     # ==================== 이미지 목록 ====================
 
     def list_images(self) -> list[Path]:
-        return sorted(self.session_dir.glob("*.jpg"), key=lambda p: p.stat().st_mtime)
+        return sorted(self.session_dir.glob("*.jpg"))
 
     def list_deleted(self) -> list[Path]:
         return sorted(self.deleted_dir.glob("*.jpg"))
