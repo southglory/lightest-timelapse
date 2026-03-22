@@ -2,6 +2,10 @@
 
 # Lightest Timelapse
 
+![GitHub stars](https://img.shields.io/github/stars/southglory/lightest-timelapse?style=social)
+![GitHub forks](https://img.shields.io/github/forks/southglory/lightest-timelapse?style=social)
+![GitHub license](https://img.shields.io/github/license/southglory/lightest-timelapse)
+
 하루 종일 작업한 화면을 30초 영상으로 되감아 보세요.
 
 **클릭 한 번**이면 녹화 시작. 끄면 타임랩스 영상이 생깁니다.
@@ -121,6 +125,20 @@ python build.py                 # timelapse.exe 빌드
 python build_reviewer.py        # reviewer.exe 빌드
 ```
 
+## Support
+
+이 프로젝트가 도움이 되셨다면 star를 남겨주세요!
+
 ## License
 
 MIT
+
+## Star History
+
+<a href="https://star-history.com/#southglory/lightest-timelapse&Date">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=southglory/lightest-timelapse&type=Date&theme=dark" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=southglory/lightest-timelapse&type=Date" />
+   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=southglory/lightest-timelapse&type=Date" />
+ </picture>
+</a>
