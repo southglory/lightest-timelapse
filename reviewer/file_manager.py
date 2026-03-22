@@ -215,6 +215,8 @@ class FileManager:
 
     @staticmethod
     def apply_edits(img: Image.Image, edits: list[dict]) -> Image.Image:
+        if not edits:
+            return img
         img = img.copy()
         for edit in edits:
             t = edit["type"]
@@ -249,11 +251,15 @@ class FileManager:
         images = self.list_images()
         total = len(images)
         for i, img_path in enumerate(images):
+            dest = export_dir / img_path.name
             all_edits = self.resolve_all_edits(img_path)
-            img = Image.open(img_path)
             if all_edits:
+                img = Image.open(img_path)
                 img = self.apply_edits(img, all_edits)
-            img.save(str(export_dir / img_path.name), "JPEG", quality=90)
+                img.save(str(dest), "JPEG", quality=90)
+            else:
+                # 편집 없으면 원본 그대로 복사 (빠름)
+                shutil.copy2(str(img_path), str(dest))
             if progress_callback:
                 progress_callback(i + 1, total)
 

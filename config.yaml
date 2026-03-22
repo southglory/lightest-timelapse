@@ -1,6 +1,6 @@
 capture:
   monitor: 1          # 0=전체, 1=주모니터, 2=보조...
-  interval: 15        # 캡처 간격 (초)
+  interval: 5        # 캡처 간격 (초)
   quality: 50         # JPEG quality (1-100)
   skip_similar: true   # 변화 없는 프레임 건너뛰기
   diff_threshold: 1.5  # 픽셀 차이 임계값 (0-255, 낮을수록 민감)
