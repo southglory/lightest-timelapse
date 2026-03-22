@@ -1,6 +1,8 @@
 """파일 관리 — 편집 데이터, 템플릿, 소프트 딜리트, 썸네일, 내보내기."""
 
 import json
+import multiprocessing
+import os
 import shutil
 import subprocess
 import sys
@@ -250,18 +252,43 @@ class FileManager:
         export_dir.mkdir(exist_ok=True)
         images = self.list_images()
         total = len(images)
-        for i, img_path in enumerate(images):
-            dest = export_dir / img_path.name
+
+        # 작업 목록 준비 (파일 경로 + edits를 미리 해석)
+        jobs = []
+        for img_path in images:
             all_edits = self.resolve_all_edits(img_path)
-            if all_edits:
-                img = Image.open(img_path)
-                img = self.apply_edits(img, all_edits)
-                img.save(str(dest), "JPEG", quality=90)
-            else:
-                # 편집 없으면 원본 그대로 복사 (빠름)
-                shutil.copy2(str(img_path), str(dest))
-            if progress_callback:
-                progress_callback(i + 1, total)
+            jobs.append((str(img_path), str(export_dir / img_path.name), all_edits))
+
+        # 멀티프로세싱으로 병렬 처리
+        workers = min(os.cpu_count() or 4, 8)
+        done_count = multiprocessing.Value("i", 0)
+
+        with multiprocessing.Pool(workers) as pool:
+            results = []
+            for job in jobs:
+                r = pool.apply_async(_export_one, job, callback=lambda _: _inc_progress(done_count, total, progress_callback))
+                results.append(r)
+            for r in results:
+                r.wait()
+
+
+def _export_one(src: str, dest: str, edits: list[dict]):
+    """워커 프로세스에서 실행. 한 장 내보내기."""
+    if edits:
+        img = Image.open(src)
+        img = FileManager.apply_edits(img, edits)
+        img.save(dest, "JPEG", quality=90)
+    else:
+        shutil.copy2(src, dest)
+
+
+def _inc_progress(done_count, total, callback):
+    """진행 콜백 (메인 프로세스에서 실행)."""
+    with done_count.get_lock():
+        done_count.value += 1
+        current = done_count.value
+    if callback:
+        callback(current, total)
 
     # ==================== 영상 생성 ====================
 
