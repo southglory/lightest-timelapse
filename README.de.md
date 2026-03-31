@@ -111,6 +111,22 @@ Detaillierte Anweisungen finden Sie in der [Reviewer README](reviewer/README.md)
 
 ---
 
+## Video Editor — Nachbearbeitungswerkzeug
+
+Bestimmte Bereiche in einem vorhandenen MP4-Video weichzeichnen, verpixeln, zensieren oder zuschneiden.
+
+```
+video_editor.exe video.mp4
+```
+
+- Bereiche im ersten Frame durch Ziehen markieren
+- Weichzeichner / Mosaik / Füllung (schwarz) / Zuschnitt wählen
+- Zeitleisten-Schieberegler zur Vorschau beliebiger Frames
+- Bereiche verschieben, skalieren und löschen
+- ffmpeg-basierte Kodierung zum Speichern einer neuen MP4
+
+---
+
 ## Aus dem Quellcode bauen
 
 ```bash
@@ -119,6 +135,7 @@ python download_ffmpeg.py       # ffmpeg herunterladen
 
 python build.py                 # timelapse.exe bauen
 python build_reviewer.py        # reviewer.exe bauen
+python build_editor.py          # video_editor.exe bauen
 ```
 
 ## License

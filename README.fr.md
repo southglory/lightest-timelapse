@@ -111,14 +111,31 @@ Pour plus de détails, consultez le [README de Reviewer](reviewer/README.md).
 
 ---
 
+## Video Editor — Outil de post-traitement vidéo
+
+Flouter, pixéliser, censurer ou recadrer des zones spécifiques dans une vidéo MP4 existante.
+
+```
+video_editor.exe video.mp4
+```
+
+- Dessiner des zones sur la première image (glisser pour ajouter des rectangles)
+- Choisir flou / mosaïque / remplissage (noir) / recadrage par zone
+- Curseur de chronologie pour prévisualiser n'importe quelle image
+- Déplacer, redimensionner et supprimer des zones
+- Encodage basé sur ffmpeg pour sauvegarder un nouveau MP4
+
+---
+
 ## Compilation depuis les sources
 
 ```bash
 pip install -r requirements.txt
-python download_ffmpeg.py       # ffmpeg 다운로드
+python download_ffmpeg.py       # télécharger ffmpeg
 
-python build.py                 # timelapse.exe 빌드
-python build_reviewer.py        # reviewer.exe 빌드
+python build.py                 # compiler timelapse.exe
+python build_reviewer.py        # compiler reviewer.exe
+python build_editor.py          # compiler video_editor.exe
 ```
 
 ## License

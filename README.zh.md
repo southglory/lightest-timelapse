@@ -111,6 +111,22 @@ reviewer.exe D:\timelapse\2026-03-20_14-30-00
 
 ---
 
+## Video Editor — 视频后处理工具
+
+对已生成的 MP4 视频中的特定区域进行模糊/马赛克/遮挡/裁剪处理。
+
+```
+video_editor.exe video.mp4
+```
+
+- 在首帧上拖拽绘制区域
+- 选择模糊 / 马赛克 / 填充（黑色）/ 裁剪
+- 时间轴滑块预览任意帧
+- 移动、调整大小、删除区域
+- 基于 ffmpeg 编码保存新 MP4
+
+---
+
 ## 从源码构建
 
 ```bash
@@ -119,6 +135,7 @@ python download_ffmpeg.py       # 下载 ffmpeg
 
 python build.py                 # 构建 timelapse.exe
 python build_reviewer.py        # 构建 reviewer.exe
+python build_editor.py          # 构建 video_editor.exe
 ```
 
 ## License

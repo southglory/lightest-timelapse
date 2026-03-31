@@ -111,6 +111,22 @@ Para instrucciones detalladas, consulta el [README de Reviewer](reviewer/README.
 
 ---
 
+## Video Editor — Herramienta de postprocesamiento de vídeo
+
+Desenfocar, pixelar, censurar o recortar regiones específicas en un vídeo MP4 existente.
+
+```
+video_editor.exe video.mp4
+```
+
+- Dibujar regiones en el primer fotograma (arrastrar para añadir rectángulos)
+- Elegir desenfoque / mosaico / relleno (negro) / recorte por región
+- Control deslizante de línea de tiempo para previsualizar cualquier fotograma
+- Mover, redimensionar y eliminar regiones
+- Codificación basada en ffmpeg para guardar un nuevo MP4
+
+---
+
 ## Compilar desde el código fuente
 
 ```bash
@@ -119,6 +135,7 @@ python download_ffmpeg.py       # Descargar ffmpeg
 
 python build.py                 # Compilar timelapse.exe
 python build_reviewer.py        # Compilar reviewer.exe
+python build_editor.py          # Compilar video_editor.exe
 ```
 
 ## License

@@ -111,6 +111,22 @@ reviewer.exe D:\timelapse\2026-03-20_14-30-00
 
 ---
 
+## Video Editor — 動画後処理ツール
+
+生成済みの MP4 動画の特定領域にぼかし/モザイク/塗りつぶし/クロップを適用するツール。
+
+```
+video_editor.exe video.mp4
+```
+
+- 最初のフレーム上でドラッグして領域を指定
+- ぼかし / モザイク / 塗りつぶし（黒）/ クロップを選択
+- タイムラインスライダーで任意のフレームをプレビュー
+- 領域の移動、リサイズ、削除
+- ffmpeg ベースのエンコードで新しい MP4 を保存
+
+---
+
 ## ソースからビルド
 
 ```bash
@@ -119,6 +135,7 @@ python download_ffmpeg.py       # ffmpeg ダウンロード
 
 python build.py                 # timelapse.exe ビルド
 python build_reviewer.py        # reviewer.exe ビルド
+python build_editor.py          # video_editor.exe ビルド
 ```
 
 ## License

@@ -12,7 +12,13 @@ Rewind your entire workday into a 30-second video.
 
 ### 1. Download
 
-Grab `timelapse.exe` from [Releases](https://github.com/southglory/lightest-timelapse/releases/latest). That's it.
+Grab the exe files from [Releases](https://github.com/southglory/lightest-timelapse/releases/latest).
+
+| File | Purpose |
+|------|---------|
+| `timelapse.exe` | Screen capture |
+| `reviewer.exe` | Capture review + video generation |
+| `video_editor.exe` | Video post-processing (blur/crop etc.) |
 
 ### 2. Run
 
@@ -111,6 +117,22 @@ For detailed usage, see the [Reviewer README](reviewer/README.md).
 
 ---
 
+## Video Editor — Post-Processing Tool
+
+Blur, mosaic, censor, or crop specific regions in an existing MP4 video.
+
+```
+video_editor.exe video.mp4
+```
+
+- Draw regions on the first frame (drag to add rectangles)
+- Choose blur / mosaic / fill (black) / crop per region
+- Timeline slider to preview any frame
+- Move, resize, and delete regions
+- ffmpeg-based encoding to save a new MP4
+
+---
+
 ## Building from Source
 
 ```bash
@@ -119,6 +141,7 @@ python download_ffmpeg.py       # download ffmpeg
 
 python build.py                 # build timelapse.exe
 python build_reviewer.py        # build reviewer.exe
+python build_editor.py          # build video_editor.exe
 ```
 
 ## License

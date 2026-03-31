@@ -16,7 +16,13 @@
 
 ### 1. 다운로드
 
-[Releases](https://github.com/southglory/lightest-timelapse/releases/latest)에서 `timelapse.exe`를 받으세요. 끝.
+[Releases](https://github.com/southglory/lightest-timelapse/releases/latest)에서 exe를 받으세요.
+
+| 파일 | 용도 |
+|------|------|
+| `timelapse.exe` | 화면 캡처 |
+| `reviewer.exe` | 캡처 검수 + 영상 생성 |
+| `video_editor.exe` | 영상 후처리 (블러/크롭 등) |
 
 ### 2. 실행
 
@@ -115,6 +121,22 @@ reviewer.exe D:\timelapse\2026-03-20_14-30-00
 
 ---
 
+## Video Editor — 영상 후처리 도구
+
+이미 생성된 MP4 영상에서 특정 영역을 블러/모자이크/가리기/크롭 처리하는 도구.
+
+```
+video_editor.exe video.mp4
+```
+
+- 첫 프레임에서 영역 지정 (드래그로 사각형 추가)
+- 블러 / 모자이크 / 채우기(검정) / 크롭 선택
+- 타임라인 슬라이더로 프레임 확인
+- 영역 이동, 리사이즈, 삭제
+- ffmpeg 기반 인코딩으로 새 MP4 저장
+
+---
+
 ## 소스에서 빌드
 
 ```bash
@@ -123,6 +145,7 @@ python download_ffmpeg.py       # ffmpeg 다운로드
 
 python build.py                 # timelapse.exe 빌드
 python build_reviewer.py        # reviewer.exe 빌드
+python build_editor.py          # video_editor.exe 빌드
 ```
 
 ## Support
