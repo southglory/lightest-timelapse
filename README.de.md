@@ -123,6 +123,8 @@ video_editor.exe video.mp4
 - Weichzeichner / Mosaik / Füllung (schwarz) / Zuschnitt wählen
 - Zeitleisten-Schieberegler zur Vorschau beliebiger Frames
 - Bereiche verschieben, skalieren und löschen
+- Frame-Erfassung (aktuellen Frame mit Bearbeitungen als JPG/PNG speichern)
+- Komprimierung (Auflösung, Bitrate, Stummschaltung einstellbar)
 - ffmpeg-basierte Kodierung zum Speichern einer neuen MP4
 
 ---

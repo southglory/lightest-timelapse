@@ -129,6 +129,8 @@ video_editor.exe video.mp4
 - Choose blur / mosaic / fill (black) / crop per region
 - Timeline slider to preview any frame
 - Move, resize, and delete regions
+- Frame capture (save current frame as JPG/PNG with edits applied)
+- Compression (customizable resolution, bitrate, mute option)
 - ffmpeg-based encoding to save a new MP4
 
 ---

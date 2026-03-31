@@ -200,6 +200,58 @@ def apply_crop(video_path: str, output_path: str, crop_region: dict,
         return False, "ffmpeg을 찾을 수 없습니다."
 
 
+def compress_video(video_path: str, output_path: str, width: int = 480,
+                   bitrate: str = "500k", mute: bool = True,
+                   progress_callback=None):
+    """영상 압축. 해상도 축소 + 비트레이트 제한 + 선택적 음소거.
+
+    반환: (success: bool, message: str)
+    """
+    vf = f"scale={width}:-2"
+    cmd = [
+        _get_ffmpeg(), "-y", "-i", video_path,
+        "-vf", vf,
+        "-c:v", "libx264", "-b:v", bitrate, "-pix_fmt", "yuv420p",
+    ]
+    if mute:
+        cmd.extend(["-an"])
+    else:
+        cmd.extend(["-c:a", "aac", "-b:a", "128k"])
+    cmd.append(output_path)
+
+    flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+    try:
+        info = get_video_info(video_path)
+        total_dur = info["duration"] if info["duration"] > 0 else 1
+
+        process = subprocess.Popen(
+            cmd, stderr=subprocess.PIPE, text=True,
+            creationflags=flags,
+        )
+
+        for line in process.stderr:
+            if progress_callback:
+                match = re.search(r"time=(\d+):(\d+):(\d+)\.(\d+)", line)
+                if match:
+                    h, m, s, cs = [int(v) for v in match.groups()]
+                    current = h * 3600 + m * 60 + s + cs / 100
+                    pct = min(100.0, (current / total_dur) * 100)
+                    progress_callback(pct)
+
+        process.wait()
+        if process.returncode == 0:
+            # 용량 비교
+            import os
+            orig_mb = os.path.getsize(video_path) / (1024 * 1024)
+            comp_mb = os.path.getsize(output_path) / (1024 * 1024)
+            ratio = (1 - comp_mb / orig_mb) * 100 if orig_mb > 0 else 0
+            return True, f"완료: {output_path}\n{orig_mb:.1f}MB → {comp_mb:.1f}MB ({ratio:.0f}% 감소)"
+        else:
+            return False, f"ffmpeg 오류 (코드 {process.returncode})"
+    except FileNotFoundError:
+        return False, "ffmpeg을 찾을 수 없습니다."
+
+
 def extract_frame_at(video_path: str, seconds: float) -> Image.Image:
     """영상에서 특정 시간(초)의 프레임을 추출."""
     tmp = tempfile.NamedTemporaryFile(suffix=".png", delete=False)

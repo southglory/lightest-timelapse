@@ -123,6 +123,8 @@ video_editor.exe video.mp4
 - Choisir flou / mosaïque / remplissage (noir) / recadrage par zone
 - Curseur de chronologie pour prévisualiser n'importe quelle image
 - Déplacer, redimensionner et supprimer des zones
+- Capture d'image (sauvegarder l'image actuelle en JPG/PNG avec les modifications)
+- Compression (résolution, débit, option muet personnalisables)
 - Encodage basé sur ffmpeg pour sauvegarder un nouveau MP4
 
 ---

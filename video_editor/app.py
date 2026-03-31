@@ -6,7 +6,7 @@ from tkinter import filedialog, messagebox, ttk
 from pathlib import Path
 
 from .canvas_view import CanvasView
-from .ffmpeg_utils import extract_first_frame, extract_frame_at, get_video_info, apply_masks, apply_crop
+from .ffmpeg_utils import extract_first_frame, extract_frame_at, get_video_info, apply_masks, apply_crop, compress_video
 from .region_manager import RegionManager
 
 # 디자인 토큰
@@ -332,13 +332,30 @@ class App:
         if not self.video_path:
             messagebox.showwarning("알림", "먼저 영상을 열어주세요.")
             return
-        if not self.region_mgr.regions:
+
+        has_regions = bool(self.region_mgr.regions)
+
+        # 압축 여부 확인 (예/아니오/취소)
+        answer = messagebox.askyesnocancel("압축", "압축 저장하시겠습니까?\n\n예: 편집 적용 + 압축\n아니오: 편집만 적용\n취소: 저장 안 함")
+        if answer is None:
+            return
+        do_compress = answer
+
+        if not has_regions and not do_compress:
             messagebox.showwarning("알림", "적용할 영역이 없습니다.")
             return
 
+        # 압축 설정
+        compress_opts = None
+        if do_compress:
+            compress_opts = self._show_compress_dialog()
+            if compress_opts is None:
+                return  # 취소
+
         # 출력 경로
         src = Path(self.video_path)
-        default_name = f"{src.stem}_edited{src.suffix}"
+        suffix = "_compressed" if do_compress and not has_regions else "_edited"
+        default_name = f"{src.stem}{suffix}{src.suffix}"
         output = filedialog.asksaveasfilename(
             title="저장 위치 선택",
             initialdir=str(src.parent),
@@ -348,47 +365,123 @@ class App:
         if not output:
             return
 
-        self._encoding = True
-        self.btn_apply.config(state=tk.DISABLED, text="인코딩 중...")
-        self.progress["value"] = 0
-
-        all_regions = self.region_mgr.to_filter_params()
+        all_regions = self.region_mgr.to_filter_params() if has_regions else []
         mask_regions = [r for r in all_regions if r["kind"] != "crop"]
         crop_regions = [r for r in all_regions if r["kind"] == "crop"]
 
         if len(crop_regions) > 1:
             messagebox.showwarning("알림", "크롭 영역은 하나만 지정할 수 있습니다.")
-            self._encoding = False
-            self.btn_apply.config(state=tk.NORMAL, text="적용 및 저장")
             return
 
         crop = crop_regions[0] if crop_regions else None
 
+        self._encoding = True
+        self.btn_apply.config(state=tk.DISABLED, text="인코딩 중...")
+        self.progress["value"] = 0
+
         def worker():
+            import tempfile
             progress_cb = lambda pct: self.root.after(0, self._update_progress, pct)
-            if mask_regions and crop:
-                # 마스크 먼저 적용 → 임시 파일 → 크롭
-                import tempfile, os
-                tmp = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False)
-                tmp_path = tmp.name
-                tmp.close()
-                try:
-                    ok, msg = apply_masks(self.video_path, tmp_path, mask_regions, progress_callback=progress_cb)
+            current_input = self.video_path
+
+            try:
+                tmp_files = []
+
+                # 1단계: 마스크 적용
+                if mask_regions:
+                    tmp = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False)
+                    tmp.close()
+                    tmp_files.append(tmp.name)
+                    ok, msg = apply_masks(current_input, tmp.name, mask_regions, progress_callback=progress_cb)
                     if not ok:
                         self.root.after(0, self._encode_done, False, msg)
                         return
-                    ok, msg = apply_crop(tmp_path, output, crop, progress_callback=progress_cb)
+                    current_input = tmp.name
+
+                # 2단계: 크롭 적용
+                if crop:
+                    tmp = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False)
+                    tmp.close()
+                    tmp_files.append(tmp.name)
+                    ok, msg = apply_crop(current_input, tmp.name, crop, progress_callback=progress_cb)
+                    if not ok:
+                        self.root.after(0, self._encode_done, False, msg)
+                        return
+                    current_input = tmp.name
+
+                # 3단계: 압축 (선택)
+                if compress_opts:
+                    ok, msg = compress_video(
+                        current_input, output,
+                        width=compress_opts["width"],
+                        bitrate=compress_opts["bitrate"],
+                        mute=compress_opts["mute"],
+                        progress_callback=progress_cb)
                     self.root.after(0, self._encode_done, ok, msg)
-                finally:
-                    Path(tmp_path).unlink(missing_ok=True)
-            elif crop:
-                ok, msg = apply_crop(self.video_path, output, crop, progress_callback=progress_cb)
-                self.root.after(0, self._encode_done, ok, msg)
-            else:
-                ok, msg = apply_masks(self.video_path, output, mask_regions, progress_callback=progress_cb)
-                self.root.after(0, self._encode_done, ok, msg)
+                elif current_input != self.video_path:
+                    # 마스크/크롭만 적용 — 마지막 임시 파일을 최종 출력으로 이동
+                    import shutil
+                    shutil.move(current_input, output)
+                    tmp_files = [t for t in tmp_files if t != current_input]
+                    self.root.after(0, self._encode_done, True, f"완료: {output}")
+                else:
+                    self.root.after(0, self._encode_done, True, f"완료: {output}")
+
+            finally:
+                for t in tmp_files:
+                    Path(t).unlink(missing_ok=True)
 
         threading.Thread(target=worker, daemon=True).start()
+
+    def _show_compress_dialog(self) -> dict | None:
+        """압축 설정 다이얼로그. 반환: {"width", "bitrate", "mute"} 또는 None(취소)."""
+        result = {}
+
+        dlg = tk.Toplevel(self.root)
+        dlg.title("압축 설정")
+        dlg.geometry("300x200")
+        dlg.configure(bg=BG_MAIN)
+        dlg.resizable(False, False)
+        dlg.transient(self.root)
+        dlg.grab_set()
+
+        tk.Label(dlg, text="가로 해상도:", bg=BG_MAIN, fg=FG, font=FONT).pack(anchor=tk.W, padx=16, pady=(16, 2))
+        width_var = tk.StringVar(value="480")
+        tk.Entry(dlg, textvariable=width_var, bg=BG_INPUT, fg=FG, font=FONT,
+                 insertbackground=FG, width=10).pack(anchor=tk.W, padx=16)
+
+        tk.Label(dlg, text="비트레이트:", bg=BG_MAIN, fg=FG, font=FONT).pack(anchor=tk.W, padx=16, pady=(8, 2))
+        bitrate_var = tk.StringVar(value="500k")
+        tk.Entry(dlg, textvariable=bitrate_var, bg=BG_INPUT, fg=FG, font=FONT,
+                 insertbackground=FG, width=10).pack(anchor=tk.W, padx=16)
+
+        mute_var = tk.BooleanVar(value=True)
+        tk.Checkbutton(dlg, text="음소거", variable=mute_var, bg=BG_MAIN, fg=FG,
+                       selectcolor=BG_INPUT, font=FONT, activebackground=BG_MAIN,
+                       activeforeground=FG).pack(anchor=tk.W, padx=16, pady=(8, 4))
+
+        def on_ok():
+            try:
+                result["width"] = int(width_var.get())
+            except ValueError:
+                messagebox.showwarning("알림", "해상도는 숫자로 입력하세요.", parent=dlg)
+                return
+            result["bitrate"] = bitrate_var.get().strip()
+            result["mute"] = mute_var.get()
+            dlg.destroy()
+
+        def on_cancel():
+            dlg.destroy()
+
+        btn_frame = tk.Frame(dlg, bg=BG_MAIN)
+        btn_frame.pack(pady=12)
+        tk.Button(btn_frame, text="확인", font=FONT_BD, bg=ACCENT, fg="white", bd=0, padx=16,
+                  command=on_ok).pack(side=tk.LEFT, padx=4)
+        tk.Button(btn_frame, text="취소", font=FONT, bg=BG_INPUT, fg=FG, bd=0, padx=16,
+                  command=on_cancel).pack(side=tk.LEFT, padx=4)
+
+        self.root.wait_window(dlg)
+        return result if result else None
 
     def _update_progress(self, pct: float):
         self.progress["value"] = pct

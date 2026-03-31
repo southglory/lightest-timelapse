@@ -123,6 +123,8 @@ video_editor.exe video.mp4
 - Elegir desenfoque / mosaico / relleno (negro) / recorte por región
 - Control deslizante de línea de tiempo para previsualizar cualquier fotograma
 - Mover, redimensionar y eliminar regiones
+- Captura de fotograma (guardar el fotograma actual como JPG/PNG con ediciones)
+- Compresión (resolución, tasa de bits, opción de silencio configurables)
 - Codificación basada en ffmpeg para guardar un nuevo MP4
 
 ---
