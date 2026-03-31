@@ -112,6 +112,42 @@ class CanvasView(tk.Frame):
                 ImageDraw.Draw(img).rectangle(box, fill=(0, 0, 0))
         return img
 
+    def get_edited_frame(self) -> Image.Image | None:
+        """편집이 적용된 현재 프레임 반환. 크롭 영역이 있으면 잘라낸다."""
+        if not self.pil_orig:
+            return None
+
+        img = self.pil_orig.copy()
+        crop_box = None
+
+        for r in self.region_mgr.regions:
+            box = (
+                max(0, r.box[0]), max(0, r.box[1]),
+                min(img.width, r.box[2]), min(img.height, r.box[3]),
+            )
+            if box[2] <= box[0] or box[3] <= box[1]:
+                continue
+
+            if r.kind == "crop":
+                crop_box = box
+            elif r.kind == "mosaic":
+                region = img.crop(box)
+                block = 16
+                small = region.resize(
+                    (max(1, region.width // block), max(1, region.height // block)),
+                    Image.NEAREST)
+                img.paste(small.resize(region.size, Image.NEAREST), box)
+            elif r.kind == "blur":
+                region = img.crop(box)
+                img.paste(region.filter(ImageFilter.GaussianBlur(radius=20)), box)
+            elif r.kind == "fill":
+                ImageDraw.Draw(img).rectangle(box, fill=(0, 0, 0))
+
+        if crop_box:
+            img = img.crop(crop_box)
+
+        return img
+
     def _draw_overlays(self):
         """각 영역의 테두리, 선택된 영역은 핸들 포함."""
         for i, r in enumerate(self.region_mgr.regions):

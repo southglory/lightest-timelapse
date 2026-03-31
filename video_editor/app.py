@@ -72,6 +72,9 @@ class App:
                                    bd=0, padx=12, command=self._apply)
         self.btn_apply.pack(side=tk.RIGHT, padx=8, pady=4)
 
+        tk.Button(bar, text="프레임 캡처 S", font=FONT_SM, bg=BG_INPUT, fg=ACCENT_SUCCESS, bd=0, padx=8,
+                  command=self._capture_frame).pack(side=tk.RIGHT, padx=4, pady=4)
+
     def _build_main(self):
         main = tk.Frame(self.root, bg=BG_MAIN)
         main.pack(fill=tk.BOTH, expand=True)
@@ -146,6 +149,8 @@ class App:
         self.root.bind("<Escape>", lambda e: self._set_tool(None))
         self.root.bind("<Delete>", lambda e: self._delete_selected())
         self.root.bind("<space>", lambda e: self._toggle_fit())
+        self.root.bind("<s>", lambda e: self._capture_frame())
+        self.root.bind("<S>", lambda e: self._capture_frame())
 
     # ==================== 파일 열기 ====================
 
@@ -199,6 +204,35 @@ class App:
     def _toggle_fit(self):
         self.canvas_view.fit_mode = True
         self.canvas_view.render()
+
+    def _capture_frame(self):
+        """현재 프레임을 편집 적용 상태로 JPG 저장."""
+        if not self.video_path:
+            messagebox.showwarning("알림", "먼저 영상을 열어주세요.")
+            return
+
+        frame = self.canvas_view.get_edited_frame()
+        if frame is None:
+            return
+
+        src = Path(self.video_path)
+        time_val = self.timeline.get()
+        default_name = f"{src.stem}_{time_val:.1f}s.jpg"
+
+        output = filedialog.asksaveasfilename(
+            title="프레임 저장",
+            initialdir=str(src.parent),
+            initialfile=default_name,
+            defaultextension=".jpg",
+            filetypes=[("JPEG", "*.jpg"), ("PNG", "*.png"), ("모든 파일", "*.*")])
+        if not output:
+            return
+
+        if output.lower().endswith(".png"):
+            frame.save(output)
+        else:
+            frame.save(output, quality=95)
+        self.lbl_status.config(text=f"캡처 저장: {Path(output).name}")
 
     # ==================== 타임라인 ====================
 
