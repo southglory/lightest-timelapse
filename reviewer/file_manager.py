@@ -266,41 +266,6 @@ class FileManager:
                 if progress_callback:
                     progress_callback(i + 1, total)
 
-
-def _export_one(args: tuple):
-    """워커 프로세스에서 실행. 한 장 내보내기."""
-    src, dest, edits = args
-    if edits:
-        img = Image.open(src)
-        # apply_edits 인라인 (워커에서 FileManager 참조 불필요)
-        img = img.copy()
-        for edit in edits:
-            t = edit["type"]
-            if t == "mosaic":
-                box = tuple(edit["box"])
-                block = edit.get("block_size", 16)
-                region = img.crop(box)
-                small = region.resize(
-                    (max(1, region.width // block), max(1, region.height // block)),
-                    Image.NEAREST)
-                img.paste(small.resize(region.size, Image.NEAREST), box)
-            elif t == "blur":
-                box = tuple(edit["box"])
-                region = img.crop(box)
-                img.paste(region.filter(ImageFilter.GaussianBlur(radius=edit.get("radius", 20))), box)
-            elif t == "fill":
-                ImageDraw.Draw(img).rectangle(tuple(edit["box"]), fill=tuple(edit.get("color", [0, 0, 0])))
-            elif t == "pen":
-                draw = ImageDraw.Draw(img)
-                pts = edit["points"]
-                color = tuple(edit.get("color", [255, 0, 0]))
-                width = edit.get("width", 3)
-                for i in range(len(pts) - 1):
-                    draw.line([tuple(pts[i]), tuple(pts[i + 1])], fill=color, width=width)
-        img.save(dest, "JPEG", quality=90)
-    else:
-        shutil.copy2(src, dest)
-
     # ==================== 영상 생성 ====================
 
     @staticmethod
@@ -352,3 +317,38 @@ def _export_one(args: tuple):
                 return False, f"ffmpeg 오류: {result.stderr[:200]}"
         finally:
             Path(list_file).unlink(missing_ok=True)
+
+
+def _export_one(args: tuple):
+    """워커 프로세스에서 실행. 한 장 내보내기. (multiprocessing.Pool 용 모듈 레벨 함수)"""
+    src, dest, edits = args
+    if edits:
+        img = Image.open(src)
+        # apply_edits 인라인 (워커에서 FileManager 참조 불필요)
+        img = img.copy()
+        for edit in edits:
+            t = edit["type"]
+            if t == "mosaic":
+                box = tuple(edit["box"])
+                block = edit.get("block_size", 16)
+                region = img.crop(box)
+                small = region.resize(
+                    (max(1, region.width // block), max(1, region.height // block)),
+                    Image.NEAREST)
+                img.paste(small.resize(region.size, Image.NEAREST), box)
+            elif t == "blur":
+                box = tuple(edit["box"])
+                region = img.crop(box)
+                img.paste(region.filter(ImageFilter.GaussianBlur(radius=edit.get("radius", 20))), box)
+            elif t == "fill":
+                ImageDraw.Draw(img).rectangle(tuple(edit["box"]), fill=tuple(edit.get("color", [0, 0, 0])))
+            elif t == "pen":
+                draw = ImageDraw.Draw(img)
+                pts = edit["points"]
+                color = tuple(edit.get("color", [255, 0, 0]))
+                width = edit.get("width", 3)
+                for i in range(len(pts) - 1):
+                    draw.line([tuple(pts[i]), tuple(pts[i + 1])], fill=color, width=width)
+        img.save(dest, "JPEG", quality=90)
+    else:
+        shutil.copy2(src, dest)
