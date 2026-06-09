@@ -8,10 +8,11 @@ from .app import App
 
 def main():
     if len(sys.argv) < 2:
-        # 인자 없으면 폴더 선택 다이얼로그
+        # 인자 없으면 폴더 선택 다이얼로그 (콘솔 창 뒤에 숨지 않게 최상단으로)
         root = tk.Tk()
         root.withdraw()
-        folder = filedialog.askdirectory(title="세션 폴더를 선택하세요")
+        root.attributes("-topmost", True)
+        folder = filedialog.askdirectory(parent=root, title="세션 폴더를 선택하세요")
         root.destroy()
         if not folder:
             sys.exit(0)
